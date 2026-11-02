@@ -5,8 +5,8 @@ import (
 
 	"neomega-blocks/ir"
 	java "neomega-blocks/presets/java/v1"
-	"neomega-converter/bedrock/blockentities"
-	"neomega-converter/bedrock/internal/blockstate"
+	"neomega-converter-core/bedrock/blockentities"
+	"neomega-converter-core/bedrock/internal/blockstate"
 	nbt "neomega-nbt/presets/v1"
 )
 

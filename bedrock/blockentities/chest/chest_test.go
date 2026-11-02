@@ -6,7 +6,7 @@ import (
 
 	"celler"
 	"neomega-blocks/ir"
-	"neomega-converter/bedrock/blockentities"
+	"neomega-converter-core/bedrock/blockentities"
 	nbt "neomega-nbt/presets/v1"
 )
 

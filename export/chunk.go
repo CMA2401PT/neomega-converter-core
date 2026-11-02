@@ -6,7 +6,7 @@ import (
 
 	"celler/java"
 	"celler/layer_storage"
-	"neomega-converter"
+	"neomega-converter-core"
 	nbt "neomega-nbt/presets/v1"
 )
 

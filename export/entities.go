@@ -1,7 +1,7 @@
 package export
 
 import (
-	"neomega-converter"
+	"neomega-converter-core"
 	nbt "neomega-nbt/presets/v1"
 )
 

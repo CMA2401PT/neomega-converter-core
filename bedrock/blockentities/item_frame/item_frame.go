@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math"
 
-	"neomega-converter/bedrock/blockentities"
-	"neomega-converter/bedrock/items"
+	"neomega-converter-core/bedrock/blockentities"
+	"neomega-converter-core/bedrock/items"
 
 	nbt "neomega-nbt/presets/v1"
 )

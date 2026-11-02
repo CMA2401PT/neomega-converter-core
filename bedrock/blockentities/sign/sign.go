@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"neomega-converter/bedrock/blockentities"
-	"neomega-converter/bedrock/internal/textcomponent"
+	"neomega-converter-core/bedrock/blockentities"
+	"neomega-converter-core/bedrock/internal/textcomponent"
 	nbt "neomega-nbt/presets/v1"
 )
 

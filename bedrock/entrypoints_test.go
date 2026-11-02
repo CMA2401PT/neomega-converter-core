@@ -8,9 +8,9 @@ import (
 	cellerbedrock "celler/bedrock"
 	"celler/layer_storage"
 	"neomega-blocks/ir"
-	"neomega-converter"
-	"neomega-converter/bedrock/blockentities"
-	"neomega-converter/bedrock/internal/blockstate"
+	"neomega-converter-core"
+	"neomega-converter-core/bedrock/blockentities"
+	"neomega-converter-core/bedrock/internal/blockstate"
 
 	nbt "neomega-nbt/presets/v1"
 )

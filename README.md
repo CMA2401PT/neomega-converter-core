@@ -1,13 +1,9 @@
-# neomega-converter
+# neomega-converter-core
 
-neomega-converter 把 Bedrock 区块转换为 Java 方块状态，供渲染或存档写出使用。
-这里的区块是一根横向 16×16 的柱子，由多个 section 组成。
-一个 section 是 16×16×16 的方块区域。
-
-转换分两步。
-第一步只读一个源区块，得到可缓存的 Java 状态。
-第二步读取中心和周围八个区块，补全依赖邻居的状态。
-邻居必须保持第一步的结果，这样修复中心时不会受到其它区块修复顺序的影响。
+本模块将 Bedrock 方块、方块实体和存档转换为 Java 数据，供渲染或写出使用。
+一根区块柱子的水平范围是 16×16，内部按高度分成 16×16×16 的 section。
+转换只读取源柱子；邻居相关的属性修复由 [neomega-converter](../neomega-converter/README.md) 组合。
+本模块依赖方块、NBT 与存档基础库，不依赖渲染器或 fixer。
 
 ## 能力一览
 
@@ -21,21 +17,16 @@ neomega-converter 把 Bedrock 区块转换为 Java 方块状态，供渲染或�
 bedrock.ConvertState(state)            单个 Bedrock 状态 → Java 状态, ok
 items.ConvertItem(item)                Bedrock 物品 compound → Java 物品 compound 或 nil
 bedrock.ConvertBlockEntity(id, Input)  单格方块实体 → Java 状态 + 可选方块实体 / 实体, ok, err
-bedrock.ConvertSection(pos, dim, ...)  单个 Bedrock section + 方块实体 → ConvertedChunk （阶段 1）
-bedrock.ConvertChunk(chunk)            Bedrock 整根柱子 → ConvertedChunk, err      （阶段 1）
-fixer.New()                            → *Fixer, err
-fixer.Fix(center, 8 个邻居)            ConvertedChunk → 修复后的 ConvertedChunk    （阶段 2）
-fixer.FixSection(palette, 6 个邻居)    单 section 的 Java 调色板 → 修复后的调色板
-adapt.NewConverted(read, opts)        按坐标读取 Bedrock 柱子 → 缓存阶段 1 的来源
-adapt.NewFixed(converted, fixer, opts) 阶段 1 来源 → 缓存修复结果的来源
+bedrock.ConvertSection(pos, dim, ...)  单个 Bedrock section + 方块实体 → ConvertedChunk
+bedrock.ConvertChunk(chunk)            Bedrock 整根柱子 → ConvertedChunk, err
+adapt.NewConverted(read, opts)        按坐标读取 Bedrock 柱子 → 缓存转换结果 的来源
 export.ToJavaChunk / ToJavaEntities    ConvertedChunk → Java 区块 / Java 实体记录
 export.ConvertLevel(level)             Bedrock level.dat → Java level.dat
-export.ConvertWorld(src, dst, opts)    Bedrock 存档 → Java 存档，不跑 fixer          （导出第 1 步）
-export.FixWorld(world, fixer, opts)    已写好的 Java 存档 → 修复邻接状态后写回       （导出第 2 步）
+export.ConvertWorld(src, dst, opts)    Bedrock 存档 → Java 存档，不跑 fixer
 ```
 
 这些入口都在本模块；`ConvertState` 内部使用 `neomega-blocks/presets/block-converts/v1` 的两个函数。
-阶段 1 的三个粒度共用同一套实现：`ConvertSection` 和 `ConvertChunk` 只差在输入是已解码的单个 section 还是整根柱子的原始记录。
+转换的三个粒度共用同一套实现：`ConvertSection` 和 `ConvertChunk` 只差在输入是已解码的单个 section 还是整根柱子的原始记录。
 
 ### 单个方块状态
 
@@ -145,72 +136,12 @@ ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *ConvertedCh
     Biomes 恒为 nil；普通实体（生物、盔甲架等）不读取，Entities 里只有展示框
 ```
 
-### fixer：邻接修复（阶段 2）
+## 导出 Java 存档
+
+`export.ConvertWorld` 扫描源世界并逐根写出 Java 柱子，返回转换报告。
 
 ```text
-fixer.New() → (*Fixer, err)          err 只来自内嵌实心表加载失败
-f.Fix(center, ChunkNeighbours) → *ConvertedChunk
-f.FixSection(palette, [6]neighbour) → palette        邻居顺序 west/east/down/up/north/south
-  两个入口都不返回 err
-  入口先补全状态：查不到 hash 的状态去掉 waterlogged 后经 JavaCanon 补齐默认属性，再加回 waterlogged
-        oak_stairs [] 补成朝北的直楼梯；JavaCanon 也不认识的状态原样保留，各 pass 跳过它
-  Fix 的中心 section 不能为 nil
-  邻居或 section 缺失：取格得到空气并标记没有数据，红石、植物、营火、音符盒据此跳过或取默认
-  输入不被修改；返回值与输入共享未改动的 section、BlockEntities 和 Diagnostics
-```
-
-| pass | 修什么 | 降级 |
-|---|---|---|
-| connections | 栅栏、玻璃板、铁栏杆的四向连接 | 实心表缺记录时按不实心 |
-| fireConnections | 火的四向与向上附着 | 用实心面近似可燃面 |
-| stairShapes | 楼梯拐角 | 没有原版的抵消检查，少数位置拐角与原版不同 |
-| doorHalves | 门两半互补 facing/open/hinge | powered 无法恢复 |
-| snowyGround | 带 snowy 属性的方块 | 无 |
-| redstoneConnections | 平铺红石线的 side/none | 遇到元件、白名单外的邻居、可能的坡道或缺数据时整格不改，保持输入状态（转换给出的是四向 side） |
-| leafDistances | 非 persistent 树叶的 distance | 只从中心柱子内的原木出发；够不到的树叶在柱子边缘 6 格内取 6，其余取 7（游戏里会凋落） |
-| plantHeads | 海带、缠怨藤、垂泪藤、洞穴藤的头部与茎 | 新头部 age 取 0 |
-| campfireSignal | 营火 signal_fire | 无 |
-| noteBlockInstrument | 音符盒 instrument | 下方方块按名称归类，未覆盖的材质取 harp |
-
-没有修复的属性（通电状态、红石线的点与十字之分等）见 [fixer/FIXER.md](fixer/FIXER.md)。
-
-### 组合方式
-
-```text
-单格，不需要 NBT：
-  java, ok = bedrock.ConvertState(state.Tidy())
-
-单格或单 section，需要 NBT 和含水（阶段 1）：
-  converted = bedrock.ConvertSection(pos, dim, section, 落在这个 section 里的方块实体)
-  palette = converted.Sections[section.Y].Blocks
-
-单 section，没有区块上下文（viewer 上传预览）：
-  fixed = f.FixSection(javaPalette, [6]{west, east, down, up, north, south 或 nil})
-
-单根柱子，带邻居：
-  stage1[p] = ConvertChunk(read(p))，p 取中心和周围 8 个
-  fixed = f.Fix(stage1[中心], 从 stage1 取 8 个邻居)
-
-整图，顺序执行：
-  world.ScanChunks(c → stage1[c.Dimension, c.Pos] = ConvertChunk(c))
-  for each pos in stage1:
-      out = fix ? f.Fix(stage1[pos], 从 stage1 取同维度的 8 个邻居) : stage1[pos]
-      写出 out
-```
-
-邻居必须取阶段 1 结果，不能取别的柱子修复后的结果。
-`ScanChunks` 会给出所有维度的柱子，调用方按 `Dimension` 区分。
-
-整图导出不用自己写这个循环，见下一节的 `export` 包。
-
-### export：导出 Java 存档
-
-存档到存档分成两个互不依赖的步骤。
-fixer 每根柱子要读 8 个邻居，而且邻居必须是修复前的原值，和逐根柱子独立进行的转换差别很大，所以单独成一步。
-第 2 步只读磁盘上的 Java 存档，也可以对别的来源的 Java 存档运行。
-
-```text
-第 1 步  ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict}) → (Report, err)
+ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict}) → (Report, err)
   逐根柱子：ScanChunks → ConvertChunk → ToJavaChunk / ToJavaEntities → 写 region / entities
   不跑 fixer；需要按邻居重算形状的格子登记进 PostProcessing，游戏加载区块时重算
     登记：栅栏、栅栏门、玻璃板、铁栏杆、楼梯、墙、红石线、绊线、紫颂植物
@@ -219,11 +150,6 @@ fixer 每根柱子要读 8 个邻居，而且邻居必须是修复前的原值�
   Report：每个维度的柱子数、失败的柱子、各诊断种类合计、未知状态前 10、
           不支持的方块实体按 id 合计、超出 Java 高度被丢弃的 section 数、方块实体数、实体数
 
-第 2 步  FixWorld(javaWorld, fixer, {Dimensions}) → (FixReport, err)
-  柱子按 (z, x) 排序成行，内存里只留 z-1、z、z+1 三行从磁盘读入的原值
-  逐根 Fix 第 z 行（邻居取窗口里的原值）→ 立刻写回有改动的 section → 窗口前移一行
-  内存只和一行的柱子数有关，和维度总柱子数无关
-  写回时保留 section 的其他 NBT 和区块的其他字段
 ```
 
 写出的 Java 区块：
@@ -242,11 +168,11 @@ ConvertLevel(Level, 4189) → (level.dat, LevelReport, err)
 
 没有在游戏里验证的：空 Heightmaps 和 `isLightOn=0` 是否让游戏重算高度图和光照，PostProcessing 是否按预期重算形状，`level.dat` 能否直接打开。
 
-## 阶段 1：转换源区块
+## 转换源区块
 
 源数据中的床颜色、花盆植物和第二层水，需要在源数据仍可读取时合并。
 `bedrock.ConvertChunk` 接收 `*celler/bedrock.Chunk`，返回 `*converter.ConvertedChunk`。
-后者保存整根柱子的 Java 状态、Java 方块实体和诊断，可以作为阶段 1 缓存。
+后者保存整根柱子的 Java 状态、Java 方块实体和诊断，可以作为转换结果缓存。
 方块实体是附着在某个方块上的 NBT 数据，例如箱子物品。
 NBT 是 Minecraft 使用的带类型的数据格式。
 
@@ -278,152 +204,27 @@ section 解码失败通过 `error` 返回。
 
 没有生物群系映射的 section，其 `Biomes` 为 nil。
 
-## 阶段 2：修复邻接状态
+## 按坐标读取与缓存
 
-栅栏连接方向、楼梯拐角和门的两半属性，需要根据转换后的周围方块判断。
-`fixer.New` 创建修复器。
-它的 `Fix` 接收中心 `ConvertedChunk` 和 `ChunkNeighbours`，返回新的中心区块。
-邻居按 `NW/N/NE/W/E/SW/S/SE` 常量提供，也就是西北、北、东北、西、东、西南、南、东南。
+浏览或区域导出通常只需要一部分柱子。
+`adapt.NewConverted` 接收一个绑定来源和维度的 Bedrock 读取回调，按坐标转换并缓存结果。
+`Chunk(ctx, pos)` 返回只读共享的 `ConvertedChunk`；缺失柱子返回 `nil, nil`。
+源回调用 `fs.ErrNotExist` 表达缺失，支持包装后的错误。
 
-3×3 的区块范围提供中心周围完整的柱子，因此取格可以同时跨越区块边界和 section 边界。
-中心输入和邻居都保持原值。
-有改动的 section 使用新调色板，未改动的直接共享输入。
-阶段 1 与修复结果分别缓存，供邻居使用的输入始终取自阶段 1。
+需要缓存其他产生 Java 转换结果的计算时，使用 `adapt.NewCachedSource`。
+它接收 `ReadConvertedChunk` 回调，负责同坐标请求合并、取消与按字节预算淘汰。
+外层的修复缓存也使用这个实现，因此两层拥有独立条目但共享调度语义。
+`Options.CacheBytes` 为零时使用 64 MiB，负值只合并在途请求，超预算的单根结果不留存。
+预算包含调色板、NBT、诊断和条目开销的估算，不等于进程内存上限。
 
-修复由十个 pass 组成，清单见上文「能力一览」。
-一个 pass 是只处理一类邻接规则的遍历。
-每个 pass 先收齐整根中心柱子的改动，再统一应用。
-下一个 pass 能看到上一个 pass 的结果。
-规则依据和细节见 [fixer/FIXER.md](fixer/FIXER.md)。
+同一来源可以并发调用，不同坐标的读取回调也可能并发执行。
+每个调用者只取消自己的等待，最后一个等待者退出时才取消共享任务。
+已经进入不可中断读取或转换的任务可能继续运行，但结果不会覆盖重试或进入缓存。
+因此返回取消错误并不表示底层读取已经退出；句柄关闭由回调拥有者协调。
+来源内容或维度改变时，应创建新实例。
 
-缺少区块或 section 时，取格返回空气，并标明没有数据。
-红石规则利用这个标记跳过无法排除坡道的位置。
-其它规则按空气处理。
-
-单 section 上传预览使用 `FixSection`。
-它接收 Java 状态调色板和六面邻居，顺序为 west/east/down/up/north/south。
-它与区块入口共用取格函数和全部 pass。
-viewer 在自己的边界把 hash 还原成 Java 状态，并按渲染入口的需要转换回 hash。
-hash 是由完整方块状态计算的数值标识。
-
-## adapt：按坐标读取与缓存
-
-浏览器和区域导出通常只需要世界中的一部分柱子。
-`adapt` 把读取、转换和可选的邻接修复组织成按坐标取柱子的来源。
-消费方调用 `Chunk(ctx, pos)`，取得共享只读的 `ConvertedChunk`。
-不存在的柱子返回 `nil, nil`。
-
-只需要转换结果时，使用 `Converted`。
-它调用读取回调取得 Bedrock 柱子，再执行 `bedrock.ConvertChunk`。
-需要邻接状态时，在它上面接一个 `Fixed`。
-`Fixed` 从同一个 `Converted` 取得中心及八个邻居，再调用 `fixer.Fix`。
-两种来源都实现 `ChunkSource`，消费方可以使用同一套读取代码。
-
-修复可能改变邻居的形状，例如直楼梯变成内拐角后会多出一个完整侧面。
-如果再拿这个形状去修复旁边的栅栏，结果就会依赖柱子的访问顺序。
-因此 `NewFixed` 的输入类型是 `*Converted`，而不是任意 `ChunkSource`。
-这使 `Fixed` 无法被误接到另一个 `Fixed` 上。
-调用方仍可同时读取同一个 `Converted` 和它上面的 `Fixed`。
-已有其他形式的阶段 1 数据时，可以直接调用 `fixer.Fix`。
-
-### 冷请求与复用
-
-冷请求指依赖的数据尚未进入缓存。
-单独请求一根修复柱子，最多需要读取并转换 3×3 范围的九根柱子，然后修复中心。
-渲染器为了剔除被邻居遮住的面，还会请求中心的东、西、南、北四根修复柱子。
-这五个位置的 3×3 范围合并后，是 5×5 去掉四个角。
-在柱子都存在且转换缓存足够容纳这些输入时，一次这样的渲染需要转换 21 根、修复 5 根。
-上下相邻的 section 属于同一根柱子，不再扩大这个水平范围。
-
-`Converted` 缓存完整的阶段 1 结果，包括诊断。
-`Fixed` 另存完整的修复结果。
-相邻视点和不同高度窗口可以复用这些柱子。
-缺失结果也进入缓存，避免在空区域重复查找。
-中心不存在时，修复层直接返回缺失结果。
-读取或转换失败通过 `error` 返回，下次请求会重试。
-
-两层使用同一套 LRU 实现。
-LRU 会在预算不足时淘汰最久没有被访问的条目。
-每层通过 `Options.CacheBytes` 单独设置预算，零值为 64 MiB。
-负值只合并正在进行的任务，完成后不保留结果。
-超过整层预算的单根柱子也只交给当前等待者。
-
-预算按调色板、状态文本、实体 NBT 和诊断的估算字节计费。
-条目还计入 map 和链表的估算开销，因此缺失结果也占预算。
-两个阶段共享的对象在各自缓存中分别计费。
-预算用于限制缓存留存，不等于进程内存上限。
-正在计算的柱子、底层读取缓冲以及调用方仍持有的结果都可能占用额外内存。
-缓存淘汰只释放缓存的引用，调用方拿到的柱子仍然有效。
-
-### 并发、取消与来源生命周期
-
-同一实例的 `Chunk` 可以并发调用。
-两层各自按坐标合并正在进行的任务，这称为单飞。
-同时请求同一个坐标的调用者等待同一份结果。
-不同坐标可以并行计算，因此读取回调也必须允许并发调用。
-同一来源上的多个 `Fixed` 可以共享一个 `Converted` 的转换缓存。
-
-每个调用者的 context 控制自己的等待。
-首个调用者超时或取消，也不会打断其他等待者。
-最后一个等待者离开时，共享任务的 context 被取消，坐标立即允许重新请求。
-读取回调会收到这个共享 context，它保留首个调用者的 context 值。
-回调应以共享 context 的取消信号结束可中断的工作。
-
-`ConvertChunk` 和 `Fix` 本身没有中途取消入口。
-取消通过阶段边界生效，已经开始的计算可能继续到返回。
-不支持中途取消的读取也可能与同坐标的重试短暂重叠。
-废弃任务的结果不会进入缓存，也不会替换重试任务。
-因此 `Chunk` 返回取消错误，不代表底层读取已经退出。
-读取回调的拥有者负责协调正在使用的句柄与关闭操作。
-
-一个 `Converted` 实例绑定一个稳定的数据来源和维度。
-切换来源、维度或修改底层数据时，应创建新的来源实例和对应的修复层。
-返回值中的 map、调色板、NBT 和诊断都按只读共享。
-调用方要修改其中的数据时，先复制需要修改的部分。
-
-### 组装与使用
-
-先提供一个已打开的 `*cellerbedrock.World`，并选定 Bedrock 维度编号 `dimension`。
-下面是省略应用层错误处理的组装伪代码。
-回调借用 world；world 的关闭由应用层与读取操作协调。
-`cellerbedrock.World.ReadChunk` 在找不到任何区块记录时返回 `fs.ErrNotExist`。
-`NewConverted` 会识别这个错误，包括包装后的错误，并将其转换为缺失结果。
-
-```go
-read := func(
-    ctx context.Context,
-    pos celler.ChunkPos,
-) (*cellerbedrock.Chunk, error) {
-    return world.ReadChunk(dimension, pos)
-}
-
-converted := adapt.NewConverted(read, adapt.Options{})
-```
-
-只转换时，把 `converted` 交给消费方：
-
-```go
-var source adapt.ChunkSource = converted
-chunk, err := source.Chunk(ctx, celler.ChunkPos{X: 10, Z: -3})
-```
-
-需要修复时，加载 fixer 并组合第二层：
-
-```go
-f, err := fixer.New()
-// 处理 err 后再组装。
-var source adapt.ChunkSource = adapt.NewFixed(
-    converted,
-    f,
-    adapt.Options{},
-)
-chunk, err := source.Chunk(ctx, celler.ChunkPos{X: 10, Z: -3})
-```
-
-viewer 可以把取得的柱子适配成渲染 section。
-区域导出可以遍历所需坐标，把柱子传给 `export.ToJavaChunk` 和 `export.ToJavaEntities`。
-两种用途共用上述来源，邻居仍从原始 Bedrock 来源读取。
-转换和修复的语义及诊断含义见前面的两个阶段。
+返回的调色板、NBT、诊断都按只读共享，调用方修改前先复制所需部分。
+需要邻接修复时，将 `Converted` 交给外层的 `neomega-converter/adapt.NewFixed`。
 
 ## 添加规则
 
@@ -436,7 +237,7 @@ viewer 可以把取得的柱子适配成渲染 section。
 | 同一格的第二层 | 含水 | `bedrock.ConvertChunk` 的层组合 |
 | 同一格的源方块实体 | 床颜色、花盆、旗帜底色、箱子物品、告示牌文字 | `bedrock/blockentities/<子包>`，并在 `bedrock/convert.go` 的表里加一行 |
 | 物品 | 附魔、物品变体、嵌套容器 | `bedrock/items`，由方块实体规则调用 |
-| 邻居的 Java 状态 | 栅栏、楼梯、snowy、树叶距离 | `fixer/` 加一个 pass |
+| 邻居的 Java 状态 | 栅栏、楼梯、snowy、树叶距离 | `neomega-viewer-core/fixer/java-postprocess` |
 | 生物群系 | | `bedrock/biomes` |
 | 方块实体要变成 Java 实体 | 展示框 | `bedrock/blockentities/<子包>`，在 `Result.Entity` 里返回 |
 | 普通实体 | 生物、盔甲架 | `bedrock/actors` |
@@ -457,7 +258,7 @@ viewer 可以把取得的柱子适配成渲染 section。
 
 ## 用法
 
-下面的程序构造一个含蓝床和含水台阶的源区块，然后完成两步转换。
+下面的程序构造一个含蓝床和含水台阶的源区块，然后转换为 Java 状态。
 可将它保存为模块内的 `example/main.go`，运行 `go run ./example`。
 
 ```go
@@ -471,8 +272,7 @@ import (
     cellerbedrock "celler/bedrock"
     "celler/layer_storage"
     "neomega-blocks/ir"
-    "neomega-converter/bedrock"
-    "neomega-converter/fixer"
+    "neomega-converter-core/bedrock"
     nbt "neomega-nbt/presets/v1"
 )
 
@@ -515,13 +315,8 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    repair, err := fixer.New()
-    if err != nil {
-        log.Fatal(err)
-    }
-    fixed := repair.Fix(converted, fixer.ChunkNeighbours{})
     for _, x := range []int{4, 2} {
-        fmt.Println(fixed.Sections[0].Blocks.Get(layer_storage.At(x, 4, 4)))
+        fmt.Println(converted.Sections[0].Blocks.Get(layer_storage.At(x, 4, 4)))
     }
     for _, diagnostic := range converted.Diagnostics {
         fmt.Println(diagnostic.Kind, diagnostic.Count, diagnostic.Err)
@@ -543,36 +338,3 @@ cp -R ../resource/基岩版/db "$fixture_tmp/brdb"
 go run ./bedrock/testdata/generate.go -db "$fixture_tmp/brdb"
 go test ./bedrock -run TestSavedSubchunk -v
 ```
-
-## 命令行导出
-
-`cmd/bedrock-to-java` 把上面的两个导出步骤接成命令。
-LevelDB 打开时可能写文件，所以要对 Bedrock 存档的副本运行。
-
-```sh
-go build -o bedrock-to-java ./cmd/bedrock-to-java
-
-# 第 1 步；加 -fix 时接着跑第 2 步
-./bedrock-to-java -input <Bedrock 世界副本> -output <新建或空的目录> [-dims 0,1,2] [-fix] [-strict]
-
-# 只跑第 2 步，对已有的 Java 世界
-./bedrock-to-java -fix-only -output <Java 世界> [-dims 0,1,2]
-```
-
-`-dims` 是 Bedrock 维度编号，默认只导出主世界。
-命令结束时打印两步的报告，一行一个数字。
-
-对一份 572 MB 的主世界存档（195364 根柱子），在开发机上第 1 步用 3 分 39 秒、峰值内存约 50 MB，
-第 2 步用 3 分 40 秒、峰值内存约 104 MB，改动了 83558 个 section。
-
-## 实心表从哪里来
-
-fixer 判断「邻居那一面是不是实心墙」时查实心表：每个 Java 状态六个 bit，对应六个方向的面是否被不透明矩形完整覆盖。
-它由 neomega-blocks 的几何生成器从同一套模型与材质计算，写入 `presets/java/v1/solidtable/geometry.nvsolid`。
-这个 preset 与完整几何表分包，fixer 只加载实心数据。更新时先手动准备生成器的六份 assets 输入，再在 neomega-blocks 根目录运行：
-
-```sh
-go generate ./presets/java/v1/geometry
-```
-
-重新生成后重新构建本仓库。输入和验证方式见[几何生成说明](../neomega-blocks/third_party/gen_resource/geometry/solid_block_table/README.md)。

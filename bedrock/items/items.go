@@ -5,8 +5,8 @@ import (
 
 	"neomega-blocks/ir"
 	converts "neomega-blocks/presets/block-converts/v1"
-	"neomega-converter/bedrock/internal/blockstate"
-	"neomega-converter/bedrock/internal/textcomponent"
+	"neomega-converter-core/bedrock/internal/blockstate"
+	"neomega-converter-core/bedrock/internal/textcomponent"
 	nbt "neomega-nbt/presets/v1"
 )
 

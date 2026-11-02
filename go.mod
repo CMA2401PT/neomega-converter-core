@@ -1,4 +1,4 @@
-module neomega-converter
+module neomega-converter-core
 
 go 1.25.5
 
@@ -16,10 +16,10 @@ require (
 	neomega-packfs v0.0.0 // indirect
 )
 
+replace celler => ../neomega-celler
+
 replace neomega-blocks => ../neomega-blocks
 
 replace neomega-nbt => ../neomega-nbt
-
-replace celler => ../neomega-celler
 
 replace neomega-packfs => ../neomega-packfs

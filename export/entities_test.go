@@ -7,8 +7,8 @@ import (
 	"celler"
 	"celler/java"
 	"celler/java/region"
-	"neomega-converter/bedrock"
-	"neomega-converter/bedrock/blockentities"
+	"neomega-converter-core/bedrock"
+	"neomega-converter-core/bedrock/blockentities"
 	nbt "neomega-nbt/presets/v1"
 )
 

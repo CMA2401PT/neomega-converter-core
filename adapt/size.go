@@ -3,7 +3,7 @@ package adapt
 import (
 	"reflect"
 
-	"neomega-converter"
+	"neomega-converter-core"
 )
 
 func chunkBytes(chunk *converter.ConvertedChunk) int64 {

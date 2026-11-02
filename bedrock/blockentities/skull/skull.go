@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"neomega-blocks/ir"
-	"neomega-converter/bedrock/blockentities"
+	"neomega-converter-core/bedrock/blockentities"
 )
 
 const ID string = "Skull"

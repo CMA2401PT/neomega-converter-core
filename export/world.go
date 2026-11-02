@@ -11,8 +11,8 @@ import (
 	"celler/java"
 	"celler/java/region"
 	"neomega-blocks/ir"
-	"neomega-converter"
-	"neomega-converter/bedrock"
+	"neomega-converter-core"
+	"neomega-converter-core/bedrock"
 	nbt "neomega-nbt/presets/v1"
 )
 

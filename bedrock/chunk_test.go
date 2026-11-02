@@ -9,8 +9,8 @@ import (
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	converts "neomega-blocks/presets/block-converts/v1"
-	"neomega-converter"
-	"neomega-converter/bedrock/blockentities"
+	"neomega-converter-core"
+	"neomega-converter-core/bedrock/blockentities"
 	nbt "neomega-nbt/presets/v1"
 )
 

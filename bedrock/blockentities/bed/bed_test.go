@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"neomega-blocks/ir"
-	"neomega-converter/bedrock/blockentities"
+	"neomega-converter-core/bedrock/blockentities"
 )
 
 func TestConvert(t *testing.T) {
