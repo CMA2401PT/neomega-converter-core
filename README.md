@@ -2,7 +2,7 @@
 
 本模块将 Bedrock 方块、方块实体和存档转换为 Java 数据，供渲染或写出使用。
 一根区块柱子的水平范围是 16×16，内部按高度分成 16×16×16 的 section。
-转换只读取源柱子；邻居相关的属性修复由 [neomega-converter](../neomega-converter/README.md) 组合。
+转换只读取源柱子；邻居相关的属性修复由 [neomega-converter](../apps/neomega-converter/README.md) 组合。
 本模块依赖方块、NBT 与存档基础库，不依赖渲染器或 fixer。
 
 ## 能力一览
