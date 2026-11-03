@@ -1,0 +1,69 @@
+# 维护 neomega-converter-core
+
+本模块把 Bedrock 原生状态与区块转换为 Java 状态，并提供存档写出。消费者入口和兼容性限制见 [README.md](README.md)，工作区命令与模块引用规则见 [根 AGENTS.md](../AGENTS.md)。
+
+转换结果由根包的 `ConvertedChunk` 保存。`bedrock` 先转换基础调色板，再应用单格方块实体规则，最后合并第二层水；`adapt` 缓存整根转换结果，`export` 负责 Java 存档写出。
+
+## 边界与变更约束
+
+本模块依赖方块、NBT 与存档基础库，不依赖渲染器或 fixer。邻接修复由应用层组合。保留 `ConvertSection` 与 `ConvertChunk` 共用实现的结构，修改状态映射、实体规则、诊断或写出行为时，同时修订 README 中对应的兼容性说明。
+
+缓存返回的数据为只读共享。修改缓存取消与淘汰逻辑时，应保持同坐标请求合并、调用者独立取消和过期任务不写回的语义。原始区块解码失败与可恢复诊断不能互相替代。
+
+## 添加规则
+
+先确定规则需要读取什么数据，再把它放在能够取得这些数据的位置。
+
+| 规则依赖什么 | 例子 | 写在哪 |
+|---|---|---|
+| 只看方块名和属性 | 某方块映射错、新版本改名 | neomega-blocks 的 block-converts 表 |
+| 调色板条目的版本号 | 旧版本状态升级 | `bedrock.ConvertChunk` 的调色板条目转换 |
+| 同一格的第二层 | 含水 | `bedrock.ConvertChunk` 的层组合 |
+| 同一格的源方块实体 | 床颜色、花盆、旗帜底色、箱子物品、告示牌文字 | `bedrock/blockentities/<子包>`，并在 `bedrock/convert.go` 的表里加一行 |
+| 物品 | 附魔、物品变体、嵌套容器 | `bedrock/items`，由方块实体规则调用 |
+| 邻居的 Java 状态 | 栅栏、楼梯、snowy、树叶距离 | `neomega-viewer-core/fixer/java-postprocess` |
+| 生物群系 | | `bedrock/biomes` |
+| 方块实体要变成 Java 实体 | 展示框 | `bedrock/blockentities/<子包>`，在 `Result.Entity` 里返回 |
+| 普通实体 | 生物、盔甲架 | `bedrock/actors` |
+| 世界元数据、存档写出 | `level.dat`、region、PostProcessing 名单 | `export/` |
+
+方块实体规则通过 `blockentities.Input` 读取基础状态和源 NBT。
+规则返回的 `Result` 总是包含状态，附加实体可以为 nil。
+错误返回给区块入口，入口丢弃该条输出并记录诊断。
+注册表由 `bedrock` 持有，让规则子包可以依赖共享类型而不形成循环导入。
+
+箱子物品由 `items.ConvertItem` 转换。
+它支持可查到 Java 方块名的方块物品，以及药水、药水箭和书本。
+附魔写入 Java 物品组件；组件是物品上的附加数据。
+无法转换的条目整体跳过，所有条目都跳过时仍保留空箱实体。
+范围、文字近似转换和映射数据来源见 [items 包说明](bedrock/items/doc.go)。
+
+`bedrock/biomes`、`bedrock/actors` 只预留职责。
+
+## 验收
+
+从工作区根目录执行：
+
+```sh
+go run ./neomega-converter-core/examples/convert-chunk
+./check.sh neomega-converter-core
+```
+
+新增例子应放在 `examples/<场景>/main.go`，用显式类型和中文阶段注释解释源版本、坐标及错误处理，避免要求读者查内部代码才能运行。
+
+## 重建回归数据
+
+存档回归测试使用 [bedrock/testdata/subchunk.json](bedrock/testdata/subchunk.json)。
+它保存子区块 `(0, -4, 0)` 中每个非空气格子的两层源方块及 SNBT，也就是 NBT 的文本表示。
+对应世界高度为 `-64..-49`。
+测试将这些数据构造成 celler 区块，再调用 `ConvertChunk`。
+生成程序按 version 9 的存储格式逐层读取调色板。
+在联合工作区中，从本模块目录运行以下命令可重新提取 fixture。
+LevelDB 在打开时可能写文件，所以先整体复制数据库：
+
+```sh
+fixture_tmp=$(mktemp -d)
+cp -R ../resource/基岩版/db "$fixture_tmp/brdb"
+go run ./bedrock/testdata/generate.go -db "$fixture_tmp/brdb"
+go test ./bedrock -run TestSavedSubchunk -v
+```

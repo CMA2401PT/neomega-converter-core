@@ -226,115 +226,14 @@ section 解码失败通过 `error` 返回。
 返回的调色板、NBT、诊断都按只读共享，调用方修改前先复制所需部分。
 需要邻接修复时，将 `Converted` 交给外层的 `neomega-converter/adapt.NewFixed`。
 
-## 添加规则
+## 运行示例
 
-先确定规则需要读取什么数据，再把它放在能够取得这些数据的位置。
-
-| 规则依赖什么 | 例子 | 写在哪 |
-|---|---|---|
-| 只看方块名和属性 | 某方块映射错、新版本改名 | neomega-blocks 的 block-converts 表 |
-| 调色板条目的版本号 | 旧版本状态升级 | `bedrock.ConvertChunk` 的调色板条目转换 |
-| 同一格的第二层 | 含水 | `bedrock.ConvertChunk` 的层组合 |
-| 同一格的源方块实体 | 床颜色、花盆、旗帜底色、箱子物品、告示牌文字 | `bedrock/blockentities/<子包>`，并在 `bedrock/convert.go` 的表里加一行 |
-| 物品 | 附魔、物品变体、嵌套容器 | `bedrock/items`，由方块实体规则调用 |
-| 邻居的 Java 状态 | 栅栏、楼梯、snowy、树叶距离 | `neomega-viewer-core/fixer/java-postprocess` |
-| 生物群系 | | `bedrock/biomes` |
-| 方块实体要变成 Java 实体 | 展示框 | `bedrock/blockentities/<子包>`，在 `Result.Entity` 里返回 |
-| 普通实体 | 生物、盔甲架 | `bedrock/actors` |
-| 世界元数据、存档写出 | `level.dat`、region、PostProcessing 名单 | `export/` |
-
-方块实体规则通过 `blockentities.Input` 读取基础状态和源 NBT。
-规则返回的 `Result` 总是包含状态，附加实体可以为 nil。
-错误返回给区块入口，入口丢弃该条输出并记录诊断。
-注册表由 `bedrock` 持有，让规则子包可以依赖共享类型而不形成循环导入。
-
-箱子物品由 `items.ConvertItem` 转换。
-它支持可查到 Java 方块名的方块物品，以及药水、药水箭和书本。
-附魔写入 Java 物品组件；组件是物品上的附加数据。
-无法转换的条目整体跳过，所有条目都跳过时仍保留空箱实体。
-范围、文字近似转换和映射数据来源见 [items 包说明](bedrock/items/doc.go)。
-
-`bedrock/biomes`、`bedrock/actors` 只预留职责。
-
-## 用法
-
-下面的程序构造一个含蓝床和含水台阶的源区块，然后转换为 Java 状态。
-可将它保存为模块内的 `example/main.go`，运行 `go run ./example`。
-
-```go
-package main
-
-import (
-    "fmt"
-    "log"
-
-    "celler"
-    cellerbedrock "celler/bedrock"
-    "celler/layer_storage"
-    "neomega-blocks/ir"
-    "neomega-converter-core/bedrock"
-    nbt "neomega-nbt/presets/v1"
-)
-
-func main() {
-    source := cellerbedrock.NewChunk(celler.ChunkPos{}, 0)
-    base := cellerbedrock.NewLayer(cellerbedrock.Block{State: "minecraft:air []"})
-    water := cellerbedrock.NewLayer(cellerbedrock.Block{State: "minecraft:air []"})
-    base.Blocks.Set(
-        layer_storage.At(4, 4, 4),
-        cellerbedrock.Block{
-            State: ir.IRBlock(`minecraft:bed ["direction"=3,"head_piece_bit"=false,"occupied_bit"=false]`).Tidy(),
-            Version: 18168865,
-        },
-    )
-    base.Blocks.Set(
-        layer_storage.At(2, 4, 4),
-        cellerbedrock.Block{
-            State: ir.IRBlock(`minecraft:oak_slab ["minecraft:vertical_half"="bottom"]`).Tidy(),
-            Version: 18168865,
-        },
-    )
-    water.Blocks.Set(
-        layer_storage.At(2, 4, 4),
-        cellerbedrock.Block{State: `minecraft:water ["liquid_depth"=0]`, Version: 18168865},
-    )
-    if err := source.SetSection(&cellerbedrock.Section{
-        Y: 0,
-        Version: 9,
-        Layers: []*cellerbedrock.Layer{base, water},
-    }); err != nil {
-        log.Fatal(err)
-    }
-    if err := source.SetBlockEntities([]nbt.Document{{Value: nbt.Compound{
-        "id": "Bed", "color": int8(11),
-        "x": int32(4), "y": int32(4), "z": int32(4),
-    }}}); err != nil {
-        log.Fatal(err)
-    }
-    converted, err := bedrock.ConvertChunk(source)
-    if err != nil {
-        log.Fatal(err)
-    }
-    for _, x := range []int{4, 2} {
-        fmt.Println(converted.Sections[0].Blocks.Get(layer_storage.At(x, 4, 4)))
-    }
-    for _, diagnostic := range converted.Diagnostics {
-        fmt.Println(diagnostic.Kind, diagnostic.Count, diagnostic.Err)
-    }
-}
-```
-
-存档回归测试使用 [bedrock/testdata/subchunk.json](bedrock/testdata/subchunk.json)。
-它保存子区块 `(0, -4, 0)` 中每个非空气格子的两层源方块及 SNBT，也就是 NBT 的文本表示。
-对应世界高度为 `-64..-49`。
-测试将这些数据构造成 celler 区块，再调用 `ConvertChunk`。
-生成程序按 version 9 的存储格式逐层读取调色板。
-在联合工作区中，从本模块目录运行以下命令可重新提取 fixture。
-LevelDB 在打开时可能写文件，所以先整体复制数据库：
+使用 Go 1.25.5，在父工作区根目录运行：
 
 ```sh
-fixture_tmp=$(mktemp -d)
-cp -R ../resource/基岩版/db "$fixture_tmp/brdb"
-go run ./bedrock/testdata/generate.go -db "$fixture_tmp/brdb"
-go test ./bedrock -run TestSavedSubchunk -v
+go run ./neomega-converter-core/examples/convert-chunk
 ```
+
+[完整示例](examples/convert-chunk/main.go) 在内存中构造蓝床与含水台阶，不需要已有存档。输出包含蓝床状态与带 `waterlogged="true"` 的台阶状态；可恢复的问题另从 `Diagnostics` 读取。
+
+维护本模块的目录边界、规则扩展和验收命令见 [AGENTS.md](AGENTS.md)。
