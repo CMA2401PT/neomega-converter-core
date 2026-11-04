@@ -7,29 +7,10 @@ import (
 	converts "neomega-blocks/presets/block-converts/v1"
 	"neomega-converter-core/bedrock/internal/blockstate"
 	"neomega-converter-core/bedrock/internal/textcomponent"
+	"neomega-converter-core/mapping"
 	tables "neomega-converter-core/third_party"
 	nbt "neomega-nbt/presets/v1"
 )
-
-var enchantmentIDs = []string{
-	"protection", "fire_protection", "feather_falling", "blast_protection", "projectile_protection",
-	"thorns", "respiration", "depth_strider", "aqua_affinity", "sharpness", "smite", "bane_of_arthropods",
-	"knockback", "fire_aspect", "looting", "efficiency", "silk_touch", "unbreaking", "fortune", "power",
-	"punch", "flame", "infinity", "luck_of_the_sea", "lure", "frost_walker", "mending", "binding_curse",
-	"vanishing_curse", "impaling", "riptide", "loyalty", "channeling", "multishot", "piercing",
-	"quick_charge", "soul_speed", "swift_sneak", "wind_burst", "density", "breach",
-}
-
-var potionIDs = []string{
-	"water", "mundane", "long_mundane", "thick", "awkward", "night_vision", "long_night_vision",
-	"invisibility", "long_invisibility", "leaping", "long_leaping", "strong_leaping", "fire_resistance",
-	"long_fire_resistance", "swiftness", "long_swiftness", "strong_swiftness", "slowness", "long_slowness",
-	"water_breathing", "long_water_breathing", "healing", "strong_healing", "harming", "strong_harming",
-	"poison", "long_poison", "strong_poison", "regeneration", "long_regeneration", "strong_regeneration",
-	"strength", "long_strength", "strong_strength", "weakness", "long_weakness", "decay", "turtle_master",
-	"long_turtle_master", "strong_turtle_master", "slow_falling", "long_slow_falling", "strong_slowness",
-	"wind_charged", "weaving", "oozing", "infested",
-}
 
 // Bedrock 在更新中改过少数物品名，旧存档仍可能带旧名。
 // 只列出改名后 Java 侧没有同名的条目；其余名字交给生成表处理。
@@ -116,10 +97,10 @@ func components(tag nbt.Compound, javaID string, aux int32, blockItem bool) (nbt
 		if shortName(javaID) == "tipped_arrow" {
 			index--
 		}
-		if index < 0 || int(index) >= len(potionIDs) || potionIDs[index] == "decay" {
+		if index < 0 || int(index) >= len(mapping.Potions) || mapping.Potions[index] == "decay" {
 			return nil, false
 		}
-		comps["minecraft:potion_contents"] = nbt.Compound{"potion": "minecraft:" + potionIDs[index]}
+		comps["minecraft:potion_contents"] = nbt.Compound{"potion": "minecraft:" + mapping.Potions[index]}
 	}
 
 	if raw, exists := tag["ench"]; exists {
@@ -131,10 +112,10 @@ func components(tag nbt.Compound, javaID string, aux int32, blockItem bool) (nbt
 		for _, enchant := range enchants {
 			id, idOK := enchant["id"].(int16)
 			level, levelOK := enchant["lvl"].(int16)
-			if !idOK || !levelOK || id < 0 || int(id) >= len(enchantmentIDs) {
+			if !idOK || !levelOK || id < 0 || int(id) >= len(mapping.Enchantments) {
 				return nil, false
 			}
-			levels["minecraft:"+enchantmentIDs[id]] = int32(level)
+			levels["minecraft:"+mapping.Enchantments[id]] = int32(level)
 		}
 		if len(levels) > 0 {
 			// 附魔书的附魔存放在 stored_enchantments，普通物品用 enchantments。
