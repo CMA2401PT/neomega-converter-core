@@ -1,6 +1,7 @@
 package banner
 
 import (
+	"reflect"
 	"testing"
 
 	"neomega-blocks/ir"
@@ -73,9 +74,47 @@ func TestConvert(t *testing.T) {
 			if got.State.Tidy() != test.want.Tidy() {
 				t.Fatalf("got %s, want %s", got.State, test.want)
 			}
-			if got.BlockEntity != nil {
-				t.Fatalf("unexpected block entity: %v", got.BlockEntity)
+			if got.BlockEntity == nil || got.BlockEntity["id"] != "minecraft:banner" {
+				t.Fatalf("block entity: %v", got.BlockEntity)
+			}
+			if patterns, ok := got.BlockEntity["patterns"].([]nbt.Compound); !ok || len(patterns) != 0 {
+				t.Fatalf("patterns: %v", got.BlockEntity["patterns"])
 			}
 		})
+	}
+}
+
+func TestPatterns(t *testing.T) {
+	got, err := Convert(blockentities.Input{
+		Base: `minecraft:white_banner ["rotation"="0"]`,
+		Source: nbt.Compound{
+			"Base": int32(15),
+			"Patterns": []nbt.Compound{
+				{"Pattern": "bo", "Color": int32(15)},
+				{"Pattern": "cre", "Color": int32(0)},
+				{"Pattern": "glb", "Color": int32(4)},
+				{"Pattern": "nope", "Color": int32(0)},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []nbt.Compound{
+		{"pattern": "minecraft:border", "color": "white"},
+		{"pattern": "minecraft:creeper", "color": "black"},
+		{"pattern": "minecraft:globe", "color": "blue"},
+	}
+	if !reflect.DeepEqual(got.BlockEntity["patterns"], want) {
+		t.Fatalf("patterns = %#v, want %#v", got.BlockEntity["patterns"], want)
+	}
+}
+
+func TestPatternsWrongType(t *testing.T) {
+	if _, err := Convert(blockentities.Input{
+		Base:   `minecraft:white_banner ["rotation"="0"]`,
+		Source: nbt.Compound{"Base": int32(15), "Patterns": "nope"},
+	}); err == nil {
+		t.Fatal("expected an error")
 	}
 }

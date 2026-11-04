@@ -111,7 +111,7 @@ ConvertBlockEntity(id, Input{Base, SourceState, Source, LocalPos, WorldPos, Dime
 |---|---|---|---|
 | bed / `Bed` | 颜色进方块名 | color 不是 0..15 的 Byte | Java 不需要床的方块实体，不产出 |
 | flower_pot / `FlowerPot` | 植物进盆栽名 | PlantBlock 不是 compound，或缺 name/states | 植物转不出或没有对应盆栽时保留空花盆 |
-| banner / `Banner` | 底色进方块名 | Base 不是 0..15 的 Int | 图案 Patterns 丢弃，不产出方块实体 |
+| banner / `Banner` | 底色进方块名、图案进方块实体 | Base 不是 0..15 的 Int；Patterns 不是 compound 列表 | 未知图案代码逐条跳过；上游缺的 4 个图案代码由规则补齐 |
 | shulker_box / `ShulkerBox` | facing、箱内物品（产出方块实体） | facing 不是 0..5 的 Byte | 物品逐条跳过 |
 | jukebox / `Jukebox` | has_record、RecordItem（产出方块实体） | 不报错 | 唱片转不出时只有 has_record |
 | lectern / `Lectern` | has_book、Book/Page（产出方块实体） | hasBook 不是 Byte | 书转不出时只有 has_book |
@@ -130,7 +130,7 @@ ConvertBlockEntity(id, Input{Base, SourceState, Source, LocalPos, WorldPos, Dime
 | sign / `Sign`、`HangingSign` | 产出方块实体 | FrontText 不是 compound | 颜色取最近的 16 种染料；每面只取前 4 行；§ 格式码解析成样式 |
 | item_frame / `ItemFrame`、`GlowItemFrame` | 方块变成空气，产出 Java 展示框实体 | SourceState 不是 frame / glow_frame，或 facing_direction 不是 0..5 | 物品转不出时保留空框（地图不是方块物品，目前都转不出）；Rotation 写 [0,0]，未在游戏里验证 |
 
-chest、sign 和容器类规则产出 Java 方块实体，只有 item_frame 产出 Java 实体，其余规则只改方块状态。
+chest、sign、banner 和容器类规则产出 Java 方块实体，只有 item_frame 产出 Java 实体，其余规则只改方块状态。
 
 ### bedrock.ConvertChunk：整根柱子（阶段 1）
 
