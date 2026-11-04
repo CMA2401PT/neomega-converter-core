@@ -9,6 +9,7 @@ import (
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	"neomega-converter-core"
+	nbt "neomega-nbt/presets/v1"
 )
 
 func TestConvertChunk(t *testing.T) {
@@ -84,5 +85,56 @@ func TestConvertChunkSkipsLightOnlySection(t *testing.T) {
 	}
 	if len(got.Sections) != 0 || len(got.Diagnostics) != 0 {
 		t.Fatalf("sections=%v diagnostics=%v", got.Sections, got.Diagnostics)
+	}
+}
+
+func TestConvertChunkBlockEntities(t *testing.T) {
+	chunk := cellerjava.NewChunk(celler.ChunkPos{}, 4189)
+	blocks := layer_storage.MakePaletteStorage(ir.IRBlock(`minecraft:chest ["facing"="north","type"="single","waterlogged"="false"]`))
+	if err := chunk.SetSection(&cellerjava.Section{Y: 0, Blocks: blocks}); err != nil {
+		t.Fatal(err)
+	}
+	chunk.NBT.Value["block_entities"] = []nbt.Compound{{
+		"id": "minecraft:chest", "x": int32(0), "y": int32(0), "z": int32(0),
+		"Items": []nbt.Compound{{"id": "minecraft:diamond_sword", "count": int32(1), "Slot": int8(0)}},
+	}}
+	got, err := ConvertChunk(celler.ChunkPos{}, 0, chunk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.BlockEntities) != 1 {
+		t.Fatalf("block entities: %#v", got.BlockEntities)
+	}
+	entity := got.BlockEntities[0]
+	if entity["id"] != "Chest" || entity["x"] != int32(0) || entity["y"] != int32(0) || entity["z"] != int32(0) {
+		t.Fatalf("entity: %#v", entity)
+	}
+	items, _ := entity["Items"].([]nbt.Compound)
+	if len(items) != 1 || items[0]["Name"] != "minecraft:diamond_sword" || items[0]["Slot"] != int8(0) {
+		t.Fatalf("items: %#v", entity["Items"])
+	}
+}
+
+func TestConvertChunkUnsupportedBlockEntity(t *testing.T) {
+	chunk := cellerjava.NewChunk(celler.ChunkPos{}, 4189)
+	blocks := layer_storage.MakePaletteStorage(ir.IRBlock("minecraft:chest []"))
+	if err := chunk.SetSection(&cellerjava.Section{Y: 0, Blocks: blocks}); err != nil {
+		t.Fatal(err)
+	}
+	chunk.NBT.Value["block_entities"] = []nbt.Compound{{
+		"id": "minecraft:not_a_block_entity", "x": int32(0), "y": int32(0), "z": int32(0),
+	}}
+	got, err := ConvertChunk(celler.ChunkPos{}, 0, chunk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, diagnostic := range got.Diagnostics {
+		if diagnostic.Kind == converter.UnsupportedBlockEntity && diagnostic.BlockEntityID == "minecraft:not_a_block_entity" && diagnostic.Count == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("diagnostics: %+v", got.Diagnostics)
 	}
 }

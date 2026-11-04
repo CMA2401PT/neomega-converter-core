@@ -7,6 +7,7 @@ package java
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 
 	"celler"
@@ -16,8 +17,25 @@ import (
 	"neomega-blocks/ir"
 	converts "neomega-blocks/presets/block-converts/v1"
 	"neomega-converter-core"
+	"neomega-converter-core/java/blockentities"
+	"neomega-converter-core/java/blockentities/banner"
+	"neomega-converter-core/java/blockentities/chest"
+	"neomega-converter-core/java/blockentities/furnace"
+	"neomega-converter-core/java/blockentities/sign"
 	tables "neomega-converter-core/third_party"
 )
+
+// Java 方块实体 id → Bedrock 规则。
+var entityRules = map[string]blockentities.ConvertFunc{
+	chest.ID:         chest.Convert,
+	chest.TrappedID:  chest.Convert,
+	furnace.ID:       furnace.Convert,
+	furnace.BlastID:  furnace.Convert,
+	furnace.SmokerID: furnace.Convert,
+	banner.ID:        banner.Convert,
+	sign.ID:          sign.Convert,
+	sign.HangingID:   sign.Convert,
+}
 
 // Bedrock 1.21.50 的方块状态版本编码：1 << 24 | 21 << 16 | 50 << 8。
 // 目标版本比它旧的游戏会升级调色板条目；不要写成比目标游戏新的版本。
@@ -48,17 +66,20 @@ func ConvertChunk(pos celler.ChunkPos, dimension int32, src *cellerjava.Chunk) (
 	sort.Slice(ys, func(i, j int) bool { return ys[i] < ys[j] })
 
 	unknown := make(map[ir.IRBlock]uint64)
+	sources := make(map[int32]*cellerjava.Section, len(ys))
 	for _, y := range ys {
 		section, err := src.Section(y)
 		if err != nil {
 			return nil, fmt.Errorf("section %d: %w", y, err)
 		}
+		sources[y] = section
 		// 只有光照的 section 没有方块调色板，不需要写出。
 		if section.Blocks == nil {
 			continue
 		}
 		result.Sections[y] = convertSection(section, unknown)
 	}
+	convertBlockEntities(src, result, sources, dimension)
 
 	// 未知状态按名称排序，保证重复转换得到相同诊断顺序。
 	states := make([]ir.IRBlock, 0, len(unknown))
@@ -75,6 +96,81 @@ func ConvertChunk(pos celler.ChunkPos, dimension int32, src *cellerjava.Chunk) (
 		})
 	}
 	return result, nil
+}
+
+// convertBlockEntities 把 Java 的 block_entities 列表转成 Bedrock 方块实体。
+func convertBlockEntities(src *cellerjava.Chunk, result *converter.BedrockChunk, sources map[int32]*cellerjava.Section, dimension int32) {
+	documents, issues, err := src.BlockEntities()
+	if err != nil {
+		result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{Kind: converter.NBTError, Err: err})
+		return
+	}
+	for _, issue := range issues {
+		result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{Kind: converter.RuleError, Err: issue.Err})
+	}
+	unsupported := make(map[string]int)
+	for _, document := range documents {
+		pos := document.Pos
+		id, _ := document.NBT["id"].(string)
+		rule, ok := entityRules[id]
+		if !ok {
+			index, exists := unsupported[id]
+			if !exists {
+				index = len(result.Diagnostics)
+				unsupported[id] = index
+				result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{
+					Kind:          converter.UnsupportedBlockEntity,
+					BlockEntityID: id,
+					Err:           fmt.Errorf("no Java block entity rule for %q", id),
+				})
+			}
+			result.Diagnostics[index].Count++
+			continue
+		}
+		section := sources[pos.Y>>4]
+		if section == nil || section.Blocks == nil {
+			result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{
+				Kind: converter.RuleError, Pos: &pos,
+				Err: fmt.Errorf("block entity is not in a converted section"),
+			})
+			continue
+		}
+		local := layer_storage.At(pos.X, pos.Y, pos.Z)
+		javaState := section.Blocks.Get(local)
+		base, ok, _ := convertBlock(javaState)
+		if !ok {
+			// 未知方块已经计入 unknown_block，不再重复报实体规则错误。
+			continue
+		}
+		output, err := rule(blockentities.Input{
+			SourceState: javaState,
+			Base:        base.State,
+			Source:      document.NBT,
+			WorldPos:    pos,
+			Dimension:   dimension,
+			ReportItem:  result.ReportUnknownItem,
+		})
+		if err != nil {
+			result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{
+				Kind: converter.RuleError, Pos: &pos, State: base.State, Err: err,
+			})
+			continue
+		}
+		state := output.State
+		if state == "" {
+			state = base.State
+		}
+		if state != base.State {
+			if target := result.Sections[pos.Y>>4]; target != nil && len(target.Layers) > 0 {
+				target.Layers[0].Set(local, cellerbedrock.Block{State: state.Tidy(), Version: bedrockBlockVersion})
+			}
+		}
+		if output.BlockEntity != nil {
+			value := maps.Clone(output.BlockEntity)
+			value["x"], value["y"], value["z"] = pos.X, pos.Y, pos.Z
+			result.BlockEntities = append(result.BlockEntities, value)
+		}
+	}
 }
 
 func convertSection(section *cellerjava.Section, unknown map[ir.IRBlock]uint64) *converter.BedrockSection {

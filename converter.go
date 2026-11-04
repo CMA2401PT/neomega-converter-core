@@ -52,19 +52,28 @@ type Diagnostic struct {
 	ItemID        string
 }
 
-// ReportUnknownItem 合并同一 Bedrock 物品名的失败计数。
+// ReportUnknownItem 合并同一物品名的失败计数。
 // 区块转换是单 goroutine 的；结果对象不跨任务共享。
 func (c *ConvertedChunk) ReportUnknownItem(name string) {
-	for i := range c.Diagnostics {
-		if c.Diagnostics[i].Kind == UnknownItem && c.Diagnostics[i].ItemID == name {
-			c.Diagnostics[i].Count++
-			return
+	c.Diagnostics = reportUnknownItem(c.Diagnostics, name)
+}
+
+// ReportUnknownItem 是 Java → Bedrock 方向的同名入口。
+func (c *BedrockChunk) ReportUnknownItem(name string) {
+	c.Diagnostics = reportUnknownItem(c.Diagnostics, name)
+}
+
+func reportUnknownItem(diagnostics []Diagnostic, name string) []Diagnostic {
+	for i := range diagnostics {
+		if diagnostics[i].Kind == UnknownItem && diagnostics[i].ItemID == name {
+			diagnostics[i].Count++
+			return diagnostics
 		}
 	}
-	c.Diagnostics = append(c.Diagnostics, Diagnostic{
+	return append(diagnostics, Diagnostic{
 		Kind:   UnknownItem,
 		ItemID: name,
 		Count:  1,
-		Err:    fmt.Errorf("unknown or invalid Bedrock item: %q", name),
+		Err:    fmt.Errorf("unknown or invalid item: %q", name),
 	})
 }
