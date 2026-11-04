@@ -6,6 +6,7 @@ import (
 	cellerbedrock "celler/bedrock"
 	"neomega-blocks/ir"
 	"neomega-converter-core/bedrock"
+	"neomega-converter-core/mapping"
 	tables "neomega-converter-core/third_party"
 	nbt "neomega-nbt/presets/v1"
 )
@@ -13,38 +14,6 @@ import (
 type LevelReport struct {
 	// 默认字段单独报告，避免将源世界缺失的信息伪装成成功保留。
 	DefaultedFields []string
-}
-
-// gameRules 是 Bedrock level.dat 顶层键到 Java 1.21.4 规则名的对照。
-// 只列两版都存在的规则；Bedrock 独有或 Java 独有的规则不在这里。
-var gameRules = []struct{ bedrock, java string }{
-	{"dodaylightcycle", "doDaylightCycle"},
-	{"doweathercycle", "doWeatherCycle"},
-	{"dofiretick", "doFireTick"},
-	{"doinsomnia", "doInsomnia"},
-	{"domobspawning", "doMobSpawning"},
-	{"domobloot", "doMobLoot"},
-	{"dotiledrops", "doTileDrops"},
-	{"doentitydrops", "doEntityDrops"},
-	{"dolimitedcrafting", "doLimitedCrafting"},
-	{"doimmediaterespawn", "doImmediateRespawn"},
-	{"keepinventory", "keepInventory"},
-	{"mobgriefing", "mobGriefing"},
-	{"naturalregeneration", "naturalRegeneration"},
-	{"randomtickspeed", "randomTickSpeed"},
-	{"playerssleepingpercentage", "playersSleepingPercentage"},
-	{"projectilescanbreakblocks", "projectilesCanBreakBlocks"},
-	{"pvp", "pvp"},
-	{"spawnradius", "spawnRadius"},
-	{"commandblockoutput", "commandBlockOutput"},
-	{"sendcommandfeedback", "sendCommandFeedback"},
-	{"showdeathmessages", "showDeathMessages"},
-	{"maxcommandchainlength", "maxCommandChainLength"},
-	{"falldamage", "fallDamage"},
-	{"firedamage", "fireDamage"},
-	{"drowningdamage", "drowningDamage"},
-	{"freezedamage", "freezeDamage"},
-	{"tntexplosiondropdecay", "tntExplosionDropDecay"},
 }
 
 func ConvertLevel(level cellerbedrock.Level, dataVersion int32) (nbt.Document, LevelReport, error) {
@@ -154,20 +123,20 @@ func realOf(value any) (float64, bool) {
 
 func convertGameRules(source nbt.Compound) nbt.Compound {
 	rules := nbt.Compound{}
-	for _, rule := range gameRules {
-		value, exists := source[rule.bedrock]
+	for _, rule := range mapping.GameRules {
+		value, exists := source[rule.Bedrock]
 		if !exists {
 			continue
 		}
 		switch value := value.(type) {
 		case int8:
 			if value != 0 {
-				rules[rule.java] = "true"
+				rules[rule.Java] = "true"
 			} else {
-				rules[rule.java] = "false"
+				rules[rule.Java] = "false"
 			}
 		case int32:
-			rules[rule.java] = value
+			rules[rule.Java] = value
 		}
 	}
 	return rules
