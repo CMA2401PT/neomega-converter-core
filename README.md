@@ -294,3 +294,12 @@ go run ./neomega-converter-core/examples/convert-chunk
 [完整示例](examples/convert-chunk/main.go) 在内存中构造蓝床与含水台阶，不需要已有存档。输出包含蓝床状态与带 `waterlogged="true"` 的台阶状态；可恢复的问题另从 `Diagnostics` 读取。
 
 维护本模块的目录边界、规则扩展和验收命令见 [AGENTS.md](AGENTS.md)。
+
+
+## Java → Bedrock
+
+`java.ConvertChunk` / `java.ConvertChunkWithActors` 把 Java 柱子转成
+`converter.BedrockChunk`，`java/export` 写出 Bedrock 区块、实体和 `level.dat`。
+反方向不共用 `ConvertedChunk`，也不共用方块实体 Input；两个方向的 IR 状态属于不同
+hash 空间。总览见 [java/NBT.md](java/NBT.md)，命令行见
+[apps/neomega-converter](../../apps/neomega-converter/README.md)。
