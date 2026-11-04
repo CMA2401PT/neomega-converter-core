@@ -124,10 +124,10 @@ func TestUnsupportedBlockEntityCounts(t *testing.T) {
 		}
 	}
 	if err := source.SetBlockEntities([]nbt.Document{
-		{Value: nbt.Compound{"id": "Furnace", "x": int32(0), "y": int32(-16), "z": int32(0)}},
-		{Value: nbt.Compound{"id": "Furnace", "x": int32(0), "y": int32(0), "z": int32(0)}},
-		{Value: nbt.Compound{"id": "Hopper", "x": int32(2), "y": int32(0), "z": int32(0)}},
-		{Value: nbt.Compound{"id": "Furnace", "x": int32(1), "y": int32(0), "z": int32(0)}},
+		{Value: nbt.Compound{"id": "Beehive", "x": int32(0), "y": int32(-16), "z": int32(0)}},
+		{Value: nbt.Compound{"id": "Beehive", "x": int32(0), "y": int32(0), "z": int32(0)}},
+		{Value: nbt.Compound{"id": "JigsawBlock", "x": int32(2), "y": int32(0), "z": int32(0)}},
+		{Value: nbt.Compound{"id": "Beehive", "x": int32(1), "y": int32(0), "z": int32(0)}},
 		{Value: nbt.Compound{"id": "OnlyOnUnknown", "x": int32(1), "y": int32(-16), "z": int32(0)}},
 	}); err != nil {
 		t.Fatal(err)
@@ -139,7 +139,7 @@ func TestUnsupportedBlockEntityCounts(t *testing.T) {
 	if len(got.Diagnostics) != 3 || got.Diagnostics[0].Kind != converter.UnknownBlock || got.Diagnostics[0].Count != 2 {
 		t.Fatalf("diagnostics: %+v", got.Diagnostics)
 	}
-	for i, id := range []string{"Furnace", "Hopper"} {
+	for i, id := range []string{"Beehive", "JigsawBlock"} {
 		diagnostic := got.Diagnostics[i+1]
 		if diagnostic.Kind != converter.UnsupportedBlockEntity || diagnostic.BlockEntityID != id || diagnostic.Count != uint64(2-i) || diagnostic.Pos != nil || diagnostic.State != "" || diagnostic.Err == nil {
 			t.Fatalf("unsupported entity: %+v", diagnostic)

@@ -111,16 +111,25 @@ ConvertBlockEntity(id, Input{Base, SourceState, Source, LocalPos, WorldPos, Dime
 | bed / `Bed` | 颜色进方块名 | color 不是 0..15 的 Byte | Java 不需要床的方块实体，不产出 |
 | flower_pot / `FlowerPot` | 植物进盆栽名 | PlantBlock 不是 compound，或缺 name/states | 植物转不出或没有对应盆栽时保留空花盆 |
 | banner / `Banner` | 底色进方块名 | Base 不是 0..15 的 Int | 图案 Patterns 丢弃，不产出方块实体 |
-| shulker_box / `ShulkerBox` | facing | facing 不是 0..5 的 Byte | 箱内物品丢弃，不产出方块实体 |
-| jukebox / `Jukebox` | has_record | 不报错 | 唱片物品丢弃，has_record 可能为 true 而没有唱片 |
-| lectern / `Lectern` | has_book | hasBook 不是 Byte | 书丢弃，has_book 可能为 true 而没有书 |
+| shulker_box / `ShulkerBox` | facing、箱内物品（产出方块实体） | facing 不是 0..5 的 Byte | 物品逐条跳过 |
+| jukebox / `Jukebox` | has_record、RecordItem（产出方块实体） | 不报错 | 唱片转不出时只有 has_record |
+| lectern / `Lectern` | has_book、Book/Page（产出方块实体） | hasBook 不是 Byte | 书转不出时只有 has_book |
 | note_block / `Music` | note | note 不是 0..24 的 Byte | instrument 留给 fixer |
 | skull / `Skull` | 落地头颅的 rotation | 落地头颅缺 Float Rotation | 玩家头颅的皮肤丢弃，不产出方块实体 |
-| chest / `Chest` | 双箱 type=left/right；产出方块实体 | Items 不是 compound 列表；pairx/pairz 不是 Int；配对箱没有水平 facing | 转不出的物品逐条跳过；配对坐标不相邻时按单箱；LootTable 原样复制，不改路径格式 |
+| chest / `Chest` | 双箱 type=left/right；产出方块实体 | Items 不是 compound 列表；pairx/pairz 不是 Int；配对箱没有水平 facing | 转不出的物品逐条跳过；配对坐标不相邻时按单箱；LootTable 改写为 Java 资源位置 |
+| container / `Barrel`、`Hopper`、`Dispenser`、`Dropper`、`EnderChest` | 产出方块实体：Items、CustomName、LootTable/Seed | Items 不是 compound 列表 | 物品逐条跳过 |
+| furnace / `Furnace`、`BlastFurnace`、`Smoker` | 燃烧/烹饪计时 + 容器字段 | Items 不是 compound 列表 | 计时按 Java 的 Short 写出 |
+| brewing_stand / `BrewingStand` | 槽位重排、Fuel、BrewTime + 容器字段 | Items 不是 compound 列表 | 槽位 0/1/3/4 映射为 3/0/2/4；Fuel 按 Byte 写出 |
+| beacon / `Beacon` | primary/secondary effect | 不报错 | 未知效果编号省略 |
+| mob_spawner / `MobSpawner` | 七个计时字段、SpawnData | 不报错 | SpawnPotentials 恒为空 |
+| campfire / `Campfire` | 四个槽位、CookingTimes | 不报错 | CookingTotalTimes 恒为 600 |
+| command_block / `CommandBlock` | 命令与状态字段 | 不报错 | 命令语言不翻译；LastOutput 保留原文 |
+| end_gateway / `EndGateway` | exit_portal、Age | 不报错 | 坐标不是三个 Int 时省略 exit_portal |
+| decorated_pot / `DecoratedPot` | sherds、item | 不报错 | 物品转不出时省略 item |
 | sign / `Sign`、`HangingSign` | 产出方块实体 | FrontText 不是 compound | 颜色取最近的 16 种染料；每面只取前 4 行；格式码不解析 |
 | item_frame / `ItemFrame`、`GlowItemFrame` | 方块变成空气，产出 Java 展示框实体 | SourceState 不是 frame / glow_frame，或 facing_direction 不是 0..5 | 物品转不出时保留空框（地图不是方块物品，目前都转不出）；Rotation 写 [0,0]，未在游戏里验证 |
 
-只有 chest 和 sign 产出 Java 方块实体，只有 item_frame 产出 Java 实体，其余规则只改方块状态。
+chest、sign 和容器类规则产出 Java 方块实体，只有 item_frame 产出 Java 实体，其余规则只改方块状态。
 
 ### bedrock.ConvertChunk：整根柱子（阶段 1）
 
@@ -140,7 +149,7 @@ ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *ConvertedCh
     rule_error     实体缺 Int x/y/z、不在本柱子或所在 section 不存在、缺字符串 id（这几种没有坐标）
                    或规则返回 err（有坐标和基础状态）；该实体的效果丢弃，保留基础状态
     unsupported_block_entity  没有规则的方块实体，按 BlockEntityID 合并，Count 为条数；只保留基础状态
-      例如熔炉、木桶、漏斗、发射器、投掷器、酿造台的物品，刷怪笼、命令方块、信标、蜂巢的数据
+      例如蜂巢、拼图方块、结构方块、试炼刷怪笼、宝库的数据
   降级（没有诊断）：
     单个方块状态的所有降级，包括 179 个映射成空气的方块名
     基础状态转不出的格子不执行实体规则（已计入 unknown_block）

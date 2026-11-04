@@ -42,8 +42,8 @@ func TestConvert(t *testing.T) {
 			if got.State.Tidy() != test.want.Tidy() {
 				t.Fatalf("got %s, want %s", got.State, test.want)
 			}
-			if got.BlockEntity != nil {
-				t.Fatalf("unexpected block entity: %v", got.BlockEntity)
+			if got.BlockEntity == nil || got.BlockEntity["id"] != "minecraft:jukebox" {
+				t.Fatalf("block entity: %v", got.BlockEntity)
 			}
 		})
 	}

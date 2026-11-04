@@ -6,6 +6,9 @@ import (
 
 	"neomega-blocks/ir"
 	"neomega-converter-core/bedrock/blockentities"
+	"neomega-converter-core/bedrock/blockentities/container"
+	"neomega-converter-core/bedrock/items"
+	nbt "neomega-nbt/presets/v1"
 )
 
 const ID string = "Lectern"
@@ -22,5 +25,15 @@ func Convert(input blockentities.Input) (blockentities.Result, error) {
 	}
 	states := input.Base.States().Set("has_book", strconv.FormatBool(hasBook != 0))
 	state := ir.IRBlock(input.Base.NameWithNameSpace() + " " + string(states)).Tidy()
-	return blockentities.Result{State: state}, nil
+	entity := nbt.Compound{"id": "minecraft:lectern"}
+	if raw, ok := input.Source["book"].(nbt.Compound); ok {
+		if converted := items.ConvertItem(raw); converted != nil {
+			delete(converted, "Slot")
+			entity["Book"] = converted
+			if page, ok := container.Number(input.Source["page"]); ok {
+				entity["Page"] = int32(page)
+			}
+		}
+	}
+	return blockentities.Result{State: state, BlockEntity: entity}, nil
 }

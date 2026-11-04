@@ -12,12 +12,21 @@ import (
 	"neomega-converter-core"
 	"neomega-converter-core/bedrock/blockentities"
 	"neomega-converter-core/bedrock/blockentities/banner"
+	"neomega-converter-core/bedrock/blockentities/beacon"
 	"neomega-converter-core/bedrock/blockentities/bed"
+	"neomega-converter-core/bedrock/blockentities/brewing_stand"
+	"neomega-converter-core/bedrock/blockentities/campfire"
 	"neomega-converter-core/bedrock/blockentities/chest"
+	"neomega-converter-core/bedrock/blockentities/command_block"
+	"neomega-converter-core/bedrock/blockentities/container"
+	"neomega-converter-core/bedrock/blockentities/decorated_pot"
+	"neomega-converter-core/bedrock/blockentities/end_gateway"
 	"neomega-converter-core/bedrock/blockentities/flower_pot"
+	"neomega-converter-core/bedrock/blockentities/furnace"
 	"neomega-converter-core/bedrock/blockentities/item_frame"
 	"neomega-converter-core/bedrock/blockentities/jukebox"
 	"neomega-converter-core/bedrock/blockentities/lectern"
+	"neomega-converter-core/bedrock/blockentities/mob_spawner"
 	"neomega-converter-core/bedrock/blockentities/note_block"
 	"neomega-converter-core/bedrock/blockentities/shulker_box"
 	"neomega-converter-core/bedrock/blockentities/sign"
@@ -42,6 +51,22 @@ var entityRules = map[string]blockentities.ConvertFunc{
 	sign.HangingID:    sign.Convert,
 	item_frame.ID:     item_frame.Convert,
 	item_frame.GlowID: item_frame.Convert,
+	// 容器类方块实体先统一物品、名称和战利品表，再按类型补专属字段。
+	"Barrel":         container.Convert("minecraft:barrel"),
+	"Hopper":         container.Convert("minecraft:hopper"),
+	"Dispenser":      container.Convert("minecraft:dispenser"),
+	"Dropper":        container.Convert("minecraft:dropper"),
+	"EnderChest":     container.Convert("minecraft:ender_chest"),
+	furnace.ID:       furnace.Convert,
+	furnace.BlastID:  furnace.Convert,
+	furnace.SmokerID: furnace.Convert,
+	brewing_stand.ID: brewing_stand.Convert,
+	beacon.ID:        beacon.Convert,
+	mob_spawner.ID:   mob_spawner.Convert,
+	campfire.ID:      campfire.Convert,
+	command_block.ID: command_block.Convert,
+	end_gateway.ID:   end_gateway.Convert,
+	decorated_pot.ID: decorated_pot.Convert,
 }
 
 const air ir.IRBlock = "minecraft:air []"

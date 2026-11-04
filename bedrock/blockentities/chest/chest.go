@@ -5,9 +5,7 @@ import (
 
 	"neomega-blocks/ir"
 	"neomega-converter-core/bedrock/blockentities"
-	"neomega-converter-core/bedrock/internal/textcomponent"
-	"neomega-converter-core/bedrock/items"
-	nbt "neomega-nbt/presets/v1"
+	"neomega-converter-core/bedrock/blockentities/container"
 )
 
 const ID = "Chest"
@@ -17,28 +15,13 @@ func Convert(input blockentities.Input) (blockentities.Result, error) {
 	if err != nil {
 		return blockentities.Result{}, err
 	}
-	converted := []nbt.Compound{}
-	if raw, exists := input.Source["Items"]; exists {
-		source, ok := nbt.Compounds(raw)
-		if !ok {
-			return blockentities.Result{}, fmt.Errorf("chest Items must be a compound list")
-		}
-		for _, item := range source {
-			if out := items.ConvertItem(item); out != nil {
-				converted = append(converted, out)
-			}
-		}
-	}
 	id := "minecraft:chest"
 	if input.Base.NameWithNameSpace() == "minecraft:trapped_chest" {
 		id = "minecraft:trapped_chest"
 	}
-	entity := nbt.Compound{"id": id, "Items": converted}
-	if name, ok := input.Source["CustomName"].(string); ok {
-		entity["CustomName"] = textcomponent.Section(name)
-	}
-	if loot, ok := input.Source["LootTable"].(string); ok {
-		entity["LootTable"] = loot
+	entity, err := container.Common(input, id)
+	if err != nil {
+		return blockentities.Result{}, err
 	}
 	return blockentities.Result{State: state, BlockEntity: entity}, nil
 }
