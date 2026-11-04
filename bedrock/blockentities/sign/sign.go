@@ -6,6 +6,7 @@ import (
 
 	"neomega-converter-core/bedrock/blockentities"
 	"neomega-converter-core/bedrock/internal/textcomponent"
+	"neomega-converter-core/mapping"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -61,27 +62,17 @@ func side(source nbt.Compound) nbt.Compound {
 	}
 }
 
-var dyes = []struct {
-	name string
-	rgb  int32
-}{
-	{"white", 0xF9FFFE}, {"orange", 0xF9801D}, {"magenta", 0xC74EBD}, {"light_blue", 0x3AB3DA},
-	{"yellow", 0xFED83D}, {"lime", 0x80C71F}, {"pink", 0xF38BAA}, {"gray", 0x474F52},
-	{"light_gray", 0x9D9D97}, {"cyan", 0x169C9C}, {"purple", 0x8932B8}, {"blue", 0x3C44AA},
-	{"brown", 0x835432}, {"green", 0x5E7C16}, {"red", 0xB02E26}, {"black", 0x1D1D21},
-}
-
 func nearestDye(rgb int32) string {
 	name := "black"
 	best := int32(3*255*255 + 1)
-	for _, dye := range dyes {
-		r := (rgb>>16)&255 - (dye.rgb>>16)&255
-		g := (rgb>>8)&255 - (dye.rgb>>8)&255
-		b := rgb&255 - dye.rgb&255
+	for index, dye := range mapping.DyeRGB {
+		r := (rgb>>16)&255 - (dye>>16)&255
+		g := (rgb>>8)&255 - (dye>>8)&255
+		b := rgb&255 - dye&255
 		// 平方距离保留同样的大小关系，无需开方。
 		distance := r*r + g*g + b*b
 		if distance < best {
-			best, name = distance, dye.name
+			best, name = distance, mapping.DyeNames[index]
 		}
 	}
 	return name

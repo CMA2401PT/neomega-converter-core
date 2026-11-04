@@ -6,6 +6,7 @@ import (
 
 	"neomega-blocks/ir"
 	"neomega-converter-core/bedrock/blockentities"
+	"neomega-converter-core/mapping"
 	tables "neomega-converter-core/third_party"
 	nbt "neomega-nbt/presets/v1"
 )
@@ -24,12 +25,14 @@ var dyes = [...]string{
 	"light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black",
 }
 
-// pmmp 的图案表落后于 Java，补上 1.21.4 已有的几个图案。
-var extraPatterns = map[string]string{
-	"glb": "minecraft:globe",
-	"pig": "minecraft:piglin",
-	"flw": "minecraft:flow",
-	"gus": "minecraft:guster",
+// extraPatternName 从共享表里反查 pmmp 缺失的图案代码。
+func extraPatternName(code string) (string, bool) {
+	for name, value := range mapping.ExtraBannerPatterns {
+		if value == code {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 func Convert(input blockentities.Input) (blockentities.Result, error) {
@@ -71,7 +74,7 @@ func convertPatterns(source nbt.Compound) ([]nbt.Compound, error) {
 		}
 		name, ok := tables.BannerPattern(code)
 		if !ok {
-			name, ok = extraPatterns[code]
+			name, ok = extraPatternName(code)
 		}
 		if !ok {
 			continue

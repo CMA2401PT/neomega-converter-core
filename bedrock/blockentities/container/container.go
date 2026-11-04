@@ -4,11 +4,11 @@ package container
 
 import (
 	"fmt"
-	"strings"
 
 	"neomega-converter-core/bedrock/blockentities"
 	"neomega-converter-core/bedrock/internal/textcomponent"
 	"neomega-converter-core/bedrock/items"
+	"neomega-converter-core/mapping"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -52,14 +52,7 @@ func Common(input blockentities.Input, javaID string) (nbt.Compound, error) {
 }
 
 // LootPath 把 Bedrock 的战利品表路径换成 Java 的资源位置。
-func LootPath(path string) string {
-	path = strings.TrimPrefix(path, "loot_tables/")
-	path = strings.TrimSuffix(path, ".json")
-	if strings.ContainsRune(path, ':') {
-		return path
-	}
-	return "minecraft:" + path
-}
+func LootPath(path string) string { return mapping.LootTableToJava(path) }
 
 // Convert 生成“Java 方块实体 id 由调用方固定”的容器规则。
 func Convert(javaID string) blockentities.ConvertFunc {
