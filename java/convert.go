@@ -20,8 +20,18 @@ import (
 	javaactors "neomega-converter-core/java/actors"
 	"neomega-converter-core/java/blockentities"
 	"neomega-converter-core/java/blockentities/banner"
+	"neomega-converter-core/java/blockentities/beacon"
+	"neomega-converter-core/java/blockentities/brewing_stand"
+	"neomega-converter-core/java/blockentities/campfire"
 	"neomega-converter-core/java/blockentities/chest"
+	"neomega-converter-core/java/blockentities/command_block"
+	"neomega-converter-core/java/blockentities/decorated_pot"
+	"neomega-converter-core/java/blockentities/end_gateway"
 	"neomega-converter-core/java/blockentities/furnace"
+	"neomega-converter-core/java/blockentities/jukebox"
+	"neomega-converter-core/java/blockentities/lectern"
+	"neomega-converter-core/java/blockentities/mob_spawner"
+	"neomega-converter-core/java/blockentities/shulker_box"
 	"neomega-converter-core/java/blockentities/sign"
 	tables "neomega-converter-core/third_party"
 	nbt "neomega-nbt/presets/v1"
@@ -29,14 +39,25 @@ import (
 
 // Java 方块实体 id → Bedrock 规则。
 var entityRules = map[string]blockentities.ConvertFunc{
-	chest.ID:         chest.Convert,
-	chest.TrappedID:  chest.Convert,
-	furnace.ID:       furnace.Convert,
-	furnace.BlastID:  furnace.Convert,
-	furnace.SmokerID: furnace.Convert,
-	banner.ID:        banner.Convert,
-	sign.ID:          sign.Convert,
-	sign.HangingID:   sign.Convert,
+	chest.ID:                  chest.Convert,
+	chest.TrappedID:           chest.Convert,
+	furnace.ID:                furnace.Convert,
+	furnace.BlastID:           furnace.Convert,
+	furnace.SmokerID:          furnace.Convert,
+	banner.ID:                 banner.Convert,
+	sign.ID:                   sign.Convert,
+	sign.HangingID:            sign.Convert,
+	shulker_box.ID:            shulker_box.Convert,
+	jukebox.ID:                jukebox.Convert,
+	lectern.ID:                lectern.Convert,
+	brewing_stand.ID:          brewing_stand.Convert,
+	beacon.ID:                 beacon.Convert,
+	mob_spawner.ID:            mob_spawner.Convert,
+	campfire.ID:               campfire.Convert,
+	"minecraft:soul_campfire": campfire.Convert,
+	command_block.ID:          command_block.Convert,
+	end_gateway.ID:            end_gateway.Convert,
+	decorated_pot.ID:          decorated_pot.Convert,
 }
 
 // Bedrock 1.21.50 的方块状态版本编码：1 << 24 | 21 << 16 | 50 << 8。
