@@ -86,7 +86,7 @@ items.ConvertItem(bedrockItem) → javaItem 或 nil
           legacy data value 查不到，退回默认状态（white_wool）
         床、旗帜、头颅的 Damage 是颜色或种类，不是方块数据，退回默认外观
         嵌套容器里转不出的条目逐条跳过，容器本身保留
-        § 格式码原样放进文本组件，不解析成样式
+        § 格式码解析成 Java 文本组件的颜色与格式（k/l/m/n/o/r）
         dyed_color 只写 rgb，不写 show_in_tooltip
 ```
 
@@ -127,7 +127,7 @@ ConvertBlockEntity(id, Input{Base, SourceState, Source, LocalPos, WorldPos, Dime
 | command_block / `CommandBlock` | 命令与状态字段 | 不报错 | 命令语言不翻译；LastOutput 保留原文 |
 | end_gateway / `EndGateway` | exit_portal、Age | 不报错 | 坐标不是三个 Int 时省略 exit_portal |
 | decorated_pot / `DecoratedPot` | sherds、item | 不报错 | 物品转不出时省略 item |
-| sign / `Sign`、`HangingSign` | 产出方块实体 | FrontText 不是 compound | 颜色取最近的 16 种染料；每面只取前 4 行；格式码不解析 |
+| sign / `Sign`、`HangingSign` | 产出方块实体 | FrontText 不是 compound | 颜色取最近的 16 种染料；每面只取前 4 行；§ 格式码解析成样式 |
 | item_frame / `ItemFrame`、`GlowItemFrame` | 方块变成空气，产出 Java 展示框实体 | SourceState 不是 frame / glow_frame，或 facing_direction 不是 0..5 | 物品转不出时保留空框（地图不是方块物品，目前都转不出）；Rotation 写 [0,0]，未在游戏里验证 |
 
 chest、sign 和容器类规则产出 Java 方块实体，只有 item_frame 产出 Java 实体，其余规则只改方块状态。

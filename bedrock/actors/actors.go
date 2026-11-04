@@ -101,7 +101,7 @@ func Convert(source nbt.Compound) (entity nbt.Compound, known bool) {
 		entity["fall_distance"] = value
 	}
 	if name, ok := source["CustomName"].(string); ok && name != "" {
-		entity["CustomName"] = textcomponent.Section(name)
+		entity["CustomName"] = textcomponent.Styled(name)
 	}
 	if tags, ok := source["Tags"].([]string); ok && len(tags) > 0 {
 		entity["Tags"] = tags

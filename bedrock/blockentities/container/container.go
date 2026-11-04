@@ -39,7 +39,7 @@ func Common(input blockentities.Input, javaID string) (nbt.Compound, error) {
 	}
 	entity := nbt.Compound{"id": javaID, "Items": list}
 	if name, ok := input.Source["CustomName"].(string); ok && name != "" {
-		entity["CustomName"] = textcomponent.Section(name)
+		entity["CustomName"] = textcomponent.Styled(name)
 	}
 	if loot, ok := input.Source["LootTable"].(string); ok && loot != "" {
 		entity["LootTable"] = LootPath(loot)

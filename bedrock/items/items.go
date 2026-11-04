@@ -146,12 +146,12 @@ func components(tag nbt.Compound, javaID string, aux int32, blockItem bool) (nbt
 	}
 	if display, ok := tag["display"].(nbt.Compound); ok {
 		if name, ok := display["Name"].(string); ok && name != "" {
-			comps["minecraft:custom_name"] = textcomponent.Section(name)
+			comps["minecraft:custom_name"] = textcomponent.Styled(name)
 		}
 		if lore, ok := display["Lore"].([]string); ok && len(lore) > 0 {
 			lines := make([]string, 0, len(lore))
 			for _, line := range lore {
-				lines = append(lines, textcomponent.Section(line))
+				lines = append(lines, textcomponent.Styled(line))
 			}
 			comps["minecraft:lore"] = lines
 		}
@@ -232,7 +232,7 @@ func bookContent(tag nbt.Compound, written bool) nbt.Compound {
 				return nil
 			}
 			if written {
-				text = textcomponent.Section(text)
+				text = textcomponent.Styled(text)
 			}
 			pages = append(pages, nbt.Compound{"raw": text})
 		}

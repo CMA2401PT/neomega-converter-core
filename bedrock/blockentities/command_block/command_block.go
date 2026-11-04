@@ -4,6 +4,7 @@ package command_block
 import (
 	"neomega-converter-core/bedrock/blockentities"
 	"neomega-converter-core/bedrock/blockentities/container"
+	"neomega-converter-core/bedrock/internal/textcomponent"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -22,9 +23,9 @@ func Convert(input blockentities.Input) (blockentities.Result, error) {
 	if value, ok := container.Number(input.Source["SuccessCount"]); ok {
 		entity["SuccessCount"] = int32(value)
 	}
-	// Java 1.21.4 的 LastOutput 是文本组件；这里保留原文，不解析 § 样式。
+	// Java 1.21.4 的 LastOutput 是文本组件，不能保留原文的 § 格式码。
 	if value, ok := input.Source["LastOutput"].(string); ok {
-		entity["LastOutput"] = value
+		entity["LastOutput"] = textcomponent.Styled(value)
 	}
 	return blockentities.Result{State: input.Base, BlockEntity: entity}, nil
 }

@@ -21,7 +21,7 @@ func TestConvert(t *testing.T) {
 	}
 	entity := got.BlockEntity
 	if entity["id"] != "minecraft:command_block" || entity["Command"] != "say hi" ||
-		entity["auto"] != int8(1) || entity["SuccessCount"] != int32(3) || entity["LastOutput"] != "done" {
+		entity["auto"] != int8(1) || entity["SuccessCount"] != int32(3) || entity["LastOutput"] != `{"text":"done"}` {
 		t.Fatalf("fields: %#v", entity)
 	}
 }

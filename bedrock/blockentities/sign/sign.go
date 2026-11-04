@@ -47,7 +47,7 @@ func side(source nbt.Compound) nbt.Compound {
 		if i < len(lines) {
 			line = lines[i]
 		}
-		messages[i] = textcomponent.Section(line)
+		messages[i] = textcomponent.Styled(line)
 	}
 	color := "black"
 	if argb, ok := source["SignTextColor"].(int32); ok {

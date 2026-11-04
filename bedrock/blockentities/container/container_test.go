@@ -31,7 +31,7 @@ func TestCommon(t *testing.T) {
 			{"id": "minecraft:oak_log", "count": int32(4), "Slot": int8(2)},
 			{"id": "minecraft:diamond_sword", "count": int32(1), "Slot": int8(3)},
 		},
-		"CustomName":    `{"text":"§a箱子"}`,
+		"CustomName":    `{"text":"箱子","color":"green"}`,
 		"LootTable":     "minecraft:chests/simple_dungeon",
 		"LootTableSeed": int64(7),
 	}

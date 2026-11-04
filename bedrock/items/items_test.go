@@ -87,7 +87,7 @@ func TestConvertItem(t *testing.T) {
 		{
 			name: "written book",
 			src:  `{Name:"minecraft:written_book",Count:1b,tag:{title:"标题",author:"作者",generation:2s,pages:[{text:"§a第一页"},{text:""}]}}`,
-			want: `{id:"minecraft:written_book",count:1,components:{"minecraft:written_book_content":{title:{raw:"标题"},author:"作者",generation:2,pages:[{raw:'{"text":"§a第一页"}'},{raw:'{"text":""}'}],resolved:1b}}}`,
+			want: `{id:"minecraft:written_book",count:1,components:{"minecraft:written_book_content":{title:{raw:"标题"},author:"作者",generation:2,pages:[{raw:'{"text":"第一页","color":"green"}'},{raw:'{"text":""}'}],resolved:1b}}}`,
 		},
 		{
 			name: "writable book",
@@ -207,7 +207,7 @@ func TestBookMultiline(t *testing.T) {
 			pages, _ := nbt.Compounds(content["pages"])
 			want := text
 			if name == "written_book" {
-				want = `{"text":"","extra":[{"text":"§a首行"},{"text":"\n"},{"text":"第二行"},{"text":"\n"},{"text":"第三行"},{"text":"\n"},{"text":"第四行"},{"text":"\n"},{"text":"第五行"},{"text":"\n"},{"text":""}]}`
+				want = `{"text":"首行\n第二行\n第三行\n第四行\n第五行\n","color":"green"}`
 			}
 			if len(pages) != 1 || pages[0]["raw"] != want {
 				t.Fatalf("unexpected pages: %v", pages)

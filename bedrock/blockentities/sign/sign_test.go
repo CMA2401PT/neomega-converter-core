@@ -30,7 +30,7 @@ func TestModernSign(t *testing.T) {
 	want := nbt.Compound{
 		"id": "minecraft:sign",
 		"front_text": nbt.Compound{
-			"messages": []string{`{"text":"§a首行"}`, `{"text":"\"第二行\""}`, `{"text":""}`, `{"text":""}`},
+			"messages": []string{`{"text":"首行","color":"green"}`, `{"text":"\"第二行\""}`, `{"text":""}`, `{"text":""}`},
 			"color":    "red", "has_glowing_text": int8(1),
 		},
 		"back_text": nbt.Compound{

@@ -78,7 +78,7 @@ func TestItemsAndMetadata(t *testing.T) {
 					{"id": "minecraft:oak_log", "count": int32(4), "Slot": int8(2)},
 					{"id": "minecraft:diamond_sword", "count": int32(1), "Slot": int8(3)},
 				},
-				"CustomName": `{"text":"§a\"储物箱\""}`, "LootTable": "minecraft:chests/simple_dungeon",
+				"CustomName": `{"text":"\"储物箱\"","color":"green"}`, "LootTable": "minecraft:chests/simple_dungeon",
 			}
 			if got.State != base || !reflect.DeepEqual(got.BlockEntity, want) {
 				t.Fatalf("unexpected result: %+v", got)
