@@ -188,9 +188,14 @@ ToJavaChunk(ConvertedChunk, 4189) → java.Chunk
   waterlogged 原样写出；Java 不能含水的方块上的 waterlogged，游戏加载时会丢掉
 ToJavaEntities(ConvertedChunk, 4189) → {DataVersion, Position, Entities} 或 nil（没有实体）
 ConvertLevel(Level, 4189) → (level.dat, LevelReport, err)
-  从 Bedrock 取 LevelName、SpawnX/Y/Z、RandomSeed、GameType、Difficulty、Time、commandsAllowed
+  从 Bedrock 取 LevelName、SpawnX/Y/Z/SpawnRotation、RandomSeed、GameType、Difficulty、
+    IsHardcore、commandsAllowed、Time/currentTick、LastPlayed（秒转毫秒）、
+    rainLevel/lightningLevel/rainTime/lightningTime、27 条两版同名的游戏规则、
+    GenerateStructures
   取不到或类型不对时用 Java 默认值，并列进 LevelReport.DefaultedFields
-  Time 同时写进 Time 和 DayTime；WorldGenSettings 写原版三维度生成器，种子取 RandomSeed
+  Time 写总时间、DayTime 写昼夜时间；WorldGenSettings 写原版三维度生成器，种子取 RandomSeed
+  Generator=2 且 FlatWorldLayers 可解析时，主世界写成 minecraft:flat 生成器，
+    层高与群系按源数据转换；解析失败退回噪声生成器
 ```
 
 没有在游戏里验证的：空 Heightmaps 和 `isLightOn=0` 是否让游戏重算高度图和光照，PostProcessing 是否按预期重算形状，`level.dat` 能否直接打开。

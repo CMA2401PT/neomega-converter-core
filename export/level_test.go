@@ -11,7 +11,11 @@ import (
 func TestConvertLevel(t *testing.T) {
 	level := cellerbedrock.Level{NBT: nbt.Document{Value: nbt.Compound{
 		"LevelName": "测试", "SpawnX": int32(-12), "SpawnY": int32(100), "SpawnZ": int32(33),
-		"RandomSeed": int64(-9876543210), "GameType": int32(1), "Difficulty": int32(3), "Time": int64(12345), "commandsAllowed": int8(1),
+		"RandomSeed": int64(-9876543210), "GameType": int32(1), "Difficulty": int32(3), "commandsAllowed": int8(1),
+		"Time": int64(12345), "currentTick": int64(999), "SpawnRotation": float32(90),
+		"IsHardcore": int8(1), "LastPlayed": int64(1700000000), "GenerateStructures": int8(0),
+		"rainLevel": float32(0.5), "lightningLevel": float32(0), "rainTime": int32(100), "lightningTime": int32(200),
+		"keepinventory": int8(1), "randomtickspeed": int32(5),
 	}}}
 	document, report, err := ConvertLevel(level, DataVersion)
 	if err != nil || len(report.DefaultedFields) != 0 {
@@ -28,7 +32,9 @@ func TestConvertLevel(t *testing.T) {
 	data := got.Value["Data"].(nbt.Compound)
 	for key, want := range (nbt.Compound{
 		"LevelName": "测试", "SpawnX": int32(-12), "SpawnY": int32(100), "SpawnZ": int32(33),
-		"GameType": int32(1), "Difficulty": int8(3), "Time": int64(12345), "DayTime": int64(12345), "allowCommands": int8(1),
+		"GameType": int32(1), "Difficulty": int8(3), "Time": int64(999), "DayTime": int64(12345), "allowCommands": int8(1),
+		"hardcore": int8(1), "LastPlayed": int64(1700000000000), "SpawnAngle": float32(90),
+		"raining": int8(1), "thundering": int8(0), "rainTime": int32(100), "thunderTime": int32(200),
 		"DataVersion": DataVersion, "version": int32(19133), "initialized": int8(1),
 		"Version":   nbt.Compound{"Id": DataVersion, "Name": "1.21.4", "Series": "main", "Snapshot": int8(0)},
 		"DataPacks": nbt.Compound{"Enabled": []string{"vanilla"}, "Disabled": []string{}},
@@ -37,8 +43,12 @@ func TestConvertLevel(t *testing.T) {
 			t.Errorf("%s=%#v want=%#v", key, data[key], want)
 		}
 	}
+	rules := data["GameRules"].(nbt.Compound)
+	if rules["keepInventory"] != "true" || rules["randomTickSpeed"] != int32(5) {
+		t.Fatalf("gamerules: %#v", rules)
+	}
 	settings := data["WorldGenSettings"].(nbt.Compound)
-	if settings["seed"] != int64(-9876543210) || settings["generate_features"] != int8(1) || settings["bonus_chest"] != int8(0) {
+	if settings["seed"] != int64(-9876543210) || settings["generate_features"] != int8(0) || settings["bonus_chest"] != int8(0) {
 		t.Fatal(settings)
 	}
 	dimensions := settings["dimensions"].(nbt.Compound)
@@ -68,7 +78,10 @@ func TestConvertLevelDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantFields := []string{"LevelName", "SpawnX", "SpawnY", "SpawnZ", "RandomSeed", "GameType", "Difficulty", "Time", "commandsAllowed"}
+	wantFields := []string{
+		"LevelName", "SpawnX", "SpawnY", "SpawnZ", "SpawnRotation", "RandomSeed", "GameType",
+		"Difficulty", "Time", "currentTick", "commandsAllowed", "LastPlayed", "rainTime", "lightningTime",
+	}
 	if !reflect.DeepEqual(report.DefaultedFields, wantFields) {
 		t.Fatal(report)
 	}
@@ -80,5 +93,34 @@ func TestConvertLevelDefaults(t *testing.T) {
 	}
 	if data["WorldGenSettings"].(nbt.Compound)["seed"] != int64(0) {
 		t.Fatal("seed default")
+	}
+}
+
+func TestConvertLevelFlat(t *testing.T) {
+	layers := `{"biome_id":1,"block_layers":[{"block_name":"minecraft:bedrock","count":1},{"block_name":"stone","count":2}]}`
+	document, _, err := ConvertLevel(cellerbedrock.Level{NBT: nbt.Document{Value: nbt.Compound{
+		"Generator": int32(2), "FlatWorldLayers": layers,
+	}}}, DataVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := document.Value["Data"].(nbt.Compound)
+	settings := data["WorldGenSettings"].(nbt.Compound)
+	overworld := settings["dimensions"].(nbt.Compound)["minecraft:overworld"].(nbt.Compound)
+	if overworld["type"] != "minecraft:overworld" {
+		t.Fatalf("dimension: %#v", overworld)
+	}
+	generator := overworld["generator"].(nbt.Compound)
+	if generator["type"] != "minecraft:flat" {
+		t.Fatalf("generator: %#v", generator)
+	}
+	flat := generator["settings"].(nbt.Compound)
+	if flat["biome"] != "minecraft:plains" {
+		t.Fatalf("biome: %#v", flat["biome"])
+	}
+	list, ok := flat["layers"].([]nbt.Compound)
+	if !ok || len(list) != 2 || list[0]["block"] != "minecraft:bedrock" ||
+		list[1]["block"] != "minecraft:stone" || list[1]["height"] != int32(2) {
+		t.Fatalf("layers: %#v", flat["layers"])
 	}
 }
