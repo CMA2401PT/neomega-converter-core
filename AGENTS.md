@@ -22,7 +22,7 @@
 | 同一格的源方块实体 | 床颜色、花盆、旗帜底色、箱子物品、告示牌文字 | `bedrock/blockentities/<子包>`，并在 `bedrock/convert.go` 的表里加一行 |
 | 物品 | 附魔、物品变体、嵌套容器 | `bedrock/items`，由方块实体规则调用 |
 | 邻居的 Java 状态 | 栅栏、楼梯、snowy、树叶距离 | `neomega-viewer-core/fixer/java-postprocess` |
-| 生物群系 | | `bedrock/biomes` |
+| 生物群系 | 数字 id 到 Java 名、Data3D/2D | `bedrock.ConvertChunk` 的群系合并 |
 | 方块实体要变成 Java 实体 | 展示框 | `bedrock/blockentities/<子包>`，在 `Result.Entity` 里返回 |
 | 普通实体 | 生物、盔甲架 | `bedrock/actors` |
 | 世界元数据、存档写出 | `level.dat`、region、PostProcessing 名单 | `export/` |
@@ -38,7 +38,7 @@
 无法转换的条目整体跳过，所有条目都跳过时仍保留空箱实体。
 范围与文字近似见 [items 包说明](bedrock/items/doc.go)。
 
-`bedrock/biomes`、`bedrock/actors` 只预留职责。
+`bedrock/actors` 只预留职责。
 
 ## 映射数据
 

@@ -56,7 +56,7 @@ func TestConvertWorld(t *testing.T) {
 	if err = chunk.SetBlockEntities([]nbt.Document{
 		{Value: nbt.Compound{"id": "Chest", "x": int32(0), "y": int32(0), "z": int32(0), "Items": []nbt.Compound{}}},
 		{Value: nbt.Compound{"id": "ItemFrame", "x": int32(1), "y": int32(0), "z": int32(0)}},
-		{Value: nbt.Compound{"id": "Furnace", "x": int32(2), "y": int32(0), "z": int32(0)}},
+		{Value: nbt.Compound{"id": "Beehive", "x": int32(2), "y": int32(0), "z": int32(0)}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestConvertWorld(t *testing.T) {
 	if report.Chunks[0] != 1 || len(report.Chunks) != 1 || report.DroppedSections[0] != 1 || report.Entities != 1 || report.BlockEntities != 1 {
 		t.Fatalf("report=%+v", report)
 	}
-	if report.Diagnostics[converter.UnknownBlock] != 1 || report.Diagnostics[converter.UnsupportedBlockEntity] != 1 || report.UnsupportedBlockEntities["Furnace"] != 1 || len(report.UnknownStates) != 1 || report.UnknownStates[0].Count != 1 {
+	if report.Diagnostics[converter.UnknownBlock] != 1 || report.Diagnostics[converter.UnsupportedBlockEntity] != 1 || report.UnsupportedBlockEntities["Beehive"] != 1 || len(report.UnknownStates) != 1 || report.UnknownStates[0].Count != 1 {
 		t.Fatalf("diagnostics=%+v", report)
 	}
 	got, err := target.ReadChunk(java.Overworld, celler.ChunkPos{})

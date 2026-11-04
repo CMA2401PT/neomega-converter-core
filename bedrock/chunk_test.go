@@ -42,8 +42,9 @@ func TestUnknownBlockCounts(t *testing.T) {
 		t.Fatalf("unknown count: %+v", issue)
 	}
 	for _, section := range got.Sections {
-		if section.Biomes != nil {
-			t.Fatal("unexpected biome mapping")
+		// 没有群系记录时每个 section 都写 plains，避免缺少 biomes 字段。
+		if section.Biomes == nil || section.Biomes[0] != "minecraft:plains" {
+			t.Fatalf("unexpected biome mapping: %v", section.Biomes)
 		}
 		for index := range 4096 {
 			assertBlock(t, section.Blocks.Get(layer_storage.At(index>>8, index&15, index>>4&15)), air)

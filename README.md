@@ -155,7 +155,8 @@ ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *ConvertedCh
     基础状态转不出的格子不执行实体规则（已计入 unknown_block）
     第 1 层只识别水；waterlogged 会附加到任意基础状态上，包括 Java 不能含水的方块和空气
       waterlogged 是本仓库 IR 的扩展属性，不在 Java 属性表里，写出存档时由写出方决定怎么处理
-    Biomes 恒为 nil；普通实体（生物、盔甲架等）不读取，Entities 里只有展示框
+    生物群系按 Data3D 优先、2D 回退映射，未知编号和缺失 section 用 plains
+    普通实体（生物、盔甲架等）不读取，Entities 里只有展示框
 ```
 
 ## 导出 Java 存档
@@ -224,7 +225,8 @@ section 解码失败通过 `error` 返回。
 - `rule_error`：单条实体的字段或规则出错，保留基础状态。
 - `unsupported_block_entity`：方块实体没有对应规则，按 id 合并计数，只保留基础状态。
 
-没有生物群系映射的 section，其 `Biomes` 为 nil。
+没有群系记录的 section 全部写 `minecraft:plains`；源数据优先用 Data3D，其次 Data2D，
+未知编号也回退 plains，避免写出的 Java section 缺少必需的 `biomes` 字段。
 
 ## 按坐标读取与缓存
 

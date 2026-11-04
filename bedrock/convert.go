@@ -131,6 +131,7 @@ func ConvertChunk(src *cellerbedrock.Chunk) (*converter.ConvertedChunk, error) {
 		sections,
 		entities,
 	)
+	applyBiomes(src, result)
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{Kind: converter.NBTError, Err: err})
 	}
@@ -191,7 +192,7 @@ func convertSections(
 				result.Diagnostics[diagnostic].Count += counts[index]
 			}
 		}
-		result.Sections[y] = &converter.ConvertedSection{Blocks: blocks}
+		result.Sections[y] = &converter.ConvertedSection{Blocks: blocks, Biomes: plainsBiomes}
 	}
 	entityCells := convertEntities(
 		entities,
