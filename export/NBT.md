@@ -1,0 +1,42 @@
+# level.dat 的转换
+
+Bedrock 和 Java 的 `level.dat` 都是 gzip 压缩的大端 NBT，但字段名、数值宽度和版本布局不同。
+`ConvertLevel` 只取两版含义一致的部分，取不到的字段用 Java 默认值并记进 `LevelReport`。
+
+## 源字段到 Java 字段
+
+| Bedrock | Java `Data` 字段 | 说明 |
+|---|---|---|
+| `LevelName` | `LevelName` | 缺失时 `New World` |
+| `SpawnX` / `SpawnY` / `SpawnZ` | 同名 | 类型统一为 Int |
+| `SpawnRotation` | `SpawnAngle` | Float |
+| `RandomSeed` | `WorldGenSettings.seed` | Long |
+| `GameType` | `GameType` | Int |
+| `Difficulty` | `Difficulty` | Int → Byte |
+| `IsHardcore` | `hardcore` | 0/1 Byte |
+| `commandsAllowed` | `allowCommands` | 0/1 Byte |
+| `Time` / `currentTick` | `DayTime` / `Time` | 昼夜时间与总时间 |
+| `LastPlayed` | `LastPlayed` | Bedrock 是秒，Java 是毫秒 |
+| `Generator`、`FlatWorldLayers` | `WorldGenSettings.dimensions` | `Generator=2` 时写 flat 生成器 |
+
+## 游戏规则
+
+Bedrock 把规则存在 `level.dat` 顶层（`dodaylightcycle` 等），Java 1.21.4 放在
+`Data.GameRules` 里，名字是 camelCase。规则表只列两版都存在的 27 条；
+Byte 值写 `"true"`/`"false"`，Int 值原样写。
+
+## 天气
+
+`rainLevel`/`lightningLevel` 大于 0 写 `raining`/`thundering`；
+`rainTime`/`lightningTime` 对应 `rainTime`/`thunderTime`；`clearWeatherTime` 固定 0。
+
+## 平坦世界
+
+`FlatWorldLayers` 是 JSON，含 `biome_id` 和 `block_layers`。
+每个 `block_name` 先经方块表转成 Java 名，`count` 写 `height`，
+群系编号经 `third_party` 转成 Java 名。解析失败时退回噪声生成器。
+
+## 降级
+
+`GenerateStructures` 缺失按 1；其余缺失字段进 `DefaultedFields`。
+不写玩家数据、地图、记分板、世界边界和图标。

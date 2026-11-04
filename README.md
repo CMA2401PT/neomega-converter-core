@@ -81,6 +81,7 @@ items.ConvertItem(bedrockItem) → javaItem 或 nil
         名称为空或 air、Count<=0
         物品表查不到的名字
         药水编号越界或为 decay、附魔编号越界或字段类型错误、书页不是字符串
+      以上失败都会通过 ReportItem 上报，区块诊断记 unknown_item
   降级：
         没有 Block compound 的旧物品，名称已不在目标版本时（如 wool + Damage 14）
           legacy data value 查不到，退回默认状态（white_wool）
@@ -112,13 +113,13 @@ ConvertBlockEntity(id, Input{Base, SourceState, Source, LocalPos, WorldPos, Dime
 | bed / `Bed` | 颜色进方块名 | color 不是 0..15 的 Byte | Java 不需要床的方块实体，不产出 |
 | flower_pot / `FlowerPot` | 植物进盆栽名 | PlantBlock 不是 compound，或缺 name/states | 植物转不出或没有对应盆栽时保留空花盆 |
 | banner / `Banner` | 底色进方块名、图案进方块实体 | Base 不是 0..15 的 Int；Patterns 不是 compound 列表 | 未知图案代码逐条跳过；上游缺的 4 个图案代码由规则补齐 |
-| shulker_box / `ShulkerBox` | facing、箱内物品（产出方块实体） | facing 不是 0..5 的 Byte | 物品逐条跳过 |
+| shulker_box / `ShulkerBox` | facing、箱内物品（产出方块实体） | facing 不是 0..5 的 Byte | 物品逐条跳过并记 `unknown_item` |
 | jukebox / `Jukebox` | has_record、RecordItem（产出方块实体） | 不报错 | 唱片转不出时只有 has_record |
 | lectern / `Lectern` | has_book、Book/Page（产出方块实体） | hasBook 不是 Byte | 书转不出时只有 has_book |
 | note_block / `Music` | note | note 不是 0..24 的 Byte | instrument 留给 fixer |
 | skull / `Skull` | 落地头颅的 rotation | 落地头颅缺 Float Rotation | 玩家头颅的皮肤丢弃，不产出方块实体 |
-| chest / `Chest` | 双箱 type=left/right；产出方块实体 | Items 不是 compound 列表；pairx/pairz 不是 Int；配对箱没有水平 facing | 转不出的物品逐条跳过；配对坐标不相邻时按单箱；LootTable 改写为 Java 资源位置 |
-| container / `Barrel`、`Hopper`、`Dispenser`、`Dropper`、`EnderChest` | 产出方块实体：Items、CustomName、LootTable/Seed | Items 不是 compound 列表 | 物品逐条跳过 |
+| chest / `Chest` | 双箱 type=left/right；产出方块实体 | Items 不是 compound 列表；pairx/pairz 不是 Int；配对箱没有水平 facing | 转不出的物品逐条跳过并记 `unknown_item`；配对坐标不相邻时按单箱；LootTable 改写为 Java 资源位置 |
+| container / `Barrel`、`Hopper`、`Dispenser`、`Dropper`、`EnderChest` | 产出方块实体：Items、CustomName、LootTable/Seed | Items 不是 compound 列表 | 物品逐条跳过并记 `unknown_item` |
 | furnace / `Furnace`、`BlastFurnace`、`Smoker` | 燃烧/烹饪计时 + 容器字段 | Items 不是 compound 列表 | 计时按 Java 的 Short 写出 |
 | brewing_stand / `BrewingStand` | 槽位重排、Fuel、BrewTime + 容器字段 | Items 不是 compound 列表 | 槽位 0/1/3/4 映射为 3/0/2/4；Fuel 按 Byte 写出 |
 | beacon / `Beacon` | primary/secondary effect | 不报错 | 未知效果编号省略 |
@@ -152,6 +153,7 @@ ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *ConvertedCh
     unsupported_block_entity  没有规则的方块实体，按 BlockEntityID 合并，Count 为条数；只保留基础状态
       例如蜂巢、拼图方块、结构方块、试炼刷怪笼、宝库的数据
     unknown_entity  没有 Java 对应的实体标识，按 EntityID 合并，Count 为条数
+    unknown_item    物品名或物品数据转不出，按 ItemID 合并，Count 为条数
   降级（没有诊断）：
     单个方块状态的所有降级，包括 179 个映射成空气的方块名
     基础状态转不出的格子不执行实体规则（已计入 unknown_block）
@@ -170,6 +172,8 @@ ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *ConvertedCh
 ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict, IncludeUnfinished}) → (Report, err)
   逐根柱子：ScanChunks → 跳过未完成柱子 → ConvertChunk → ToJavaChunk / ToJavaEntities → 写 region / entities
   默认跳过 0x36 FinalizedState < 2 的柱子；记录缺失按已完成处理，和 mcconv 一致
+  读取 digp/actorprefix 失败只记 nbt_error 并继续写出该柱地形
+  section 解码失败或单柱编码失败记 FailedChunks；写盘失败中止整图
   不跑 fixer；需要按邻居重算形状的格子登记进 PostProcessing，游戏加载区块时重算
     登记：栅栏、栅栏门、玻璃板、铁栏杆、楼梯、墙、红石线、绊线、紫颂植物
     其余方块不登记：重算会让缺支撑的方块掉落
@@ -220,7 +224,11 @@ Java 状态用 `ir.IRBlock` 表示，即方块名与属性的规范文本。
 旧版告示牌的顶层文字作为正面，缺失的背面使用空白文字。
 规则的输入同时包含 section 内坐标和世界绝对坐标。
 输出实体的 NBT 坐标与其 `Pos` 一致。
-规则结构见[床](bedrock/blockentities/bed/NBT.md)和[花盆](bedrock/blockentities/flower_pot/NBT.md)。
+每个规则子包都附一份 `NBT.md`，说明源字段、目标字段和降级行为，例如
+[床](bedrock/blockentities/bed/NBT.md)和[花盆](bedrock/blockentities/flower_pot/NBT.md)。
+区块记录的整体结构见 [bedrock/NBT.md](bedrock/NBT.md)；物品、普通实体和 level.dat
+分别见 [items/NBT.md](bedrock/items/NBT.md)、[actors/NBT.md](bedrock/actors/NBT.md)、
+[export/NBT.md](export/NBT.md)。
 
 实体规则执行后，同一格第二层的 `water` 或 `flowing_water` 会让最终状态附带 `waterlogged="true"`。
 `waterlogged` 表示含水，仓库将它作为可附加到方块状态的扩展属性。
@@ -234,6 +242,7 @@ section 解码失败通过 `error` 返回。
 - `rule_error`：单条实体的字段或规则出错，保留基础状态。
 - `unsupported_block_entity`：方块实体没有对应规则，按 id 合并计数，只保留基础状态。
 - `unknown_entity`：实体标识没有 Java 对应，按 id 合并计数并跳过。
+- `unknown_item`：物品名或物品字段转不出，按物品名合并计数；容器保留，只丢该条目。
 
 没有群系记录的 section 全部写 `minecraft:plains`；源数据优先用 Data3D，其次 Data2D，
 未知编号也回退 plains，避免写出的 Java section 缺少必需的 `biomes` 字段。

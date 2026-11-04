@@ -27,6 +27,10 @@
 | 普通实体 | 生物、盔甲架、掉落物 | `bedrock/actors` |
 | 世界元数据、存档写出 | `level.dat`、region、PostProcessing 名单 | `export/` |
 
+新增或修改 NBT 相关的转换时，同时更新对应目录的 `NBT.md`：写清源字段、目标字段
+和降级行为。规则子包的文档就在子包根目录，物品、实体、区块和 level.dat 分别在
+`bedrock/items/NBT.md`、`bedrock/actors/NBT.md`、`bedrock/NBT.md`、`export/NBT.md`。
+
 方块实体规则通过 `blockentities.Input` 读取基础状态和源 NBT。
 规则返回的 `Result` 总是包含状态，附加实体可以为 nil。
 错误返回给区块入口，入口丢弃该条输出并记录诊断。
