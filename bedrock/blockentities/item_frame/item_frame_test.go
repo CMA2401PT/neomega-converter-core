@@ -70,7 +70,7 @@ func TestFrameItem(t *testing.T) {
 		{"default drop", "minecraft:stone", 67.5, nil, 2, 1},
 		{"explicit drop and wrap", "minecraft:stone", 382.5, float32(0.25), 1, 0.25},
 		{"negative half step", "minecraft:stone", -22.5, nil, 7, 1},
-		{"unsupported item", "minecraft:diamond_sword", 90, nil, 0, 0},
+		{"unsupported item", "minecraft:not_a_real_item", 90, nil, 0, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			source := nbt.Compound{
@@ -88,7 +88,7 @@ func TestFrameItem(t *testing.T) {
 				t.Fatalf("frame: %+v, %v", output, err)
 			}
 			entity := output.Entity
-			if test.item == "minecraft:diamond_sword" {
+			if test.item == "minecraft:not_a_real_item" {
 				for _, key := range []string{"Item", "ItemRotation", "ItemDropChance"} {
 					if _, exists := entity[key]; exists {
 						t.Fatalf("unsupported item retained %s", key)

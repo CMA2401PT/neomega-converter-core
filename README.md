@@ -62,22 +62,35 @@ items.ConvertItem(bedrockItem) → javaItem 或 nil
           1. 物品带 Block compound（name + states）时用它
           2. 否则按 Name + 顶层 Damage 查 legacy data value
           3. 都失败时只用 Name，取默认状态
+        非方块物品：按 (Name, 顶层 Damage) 查 third_party 的物品表，缺失时回退 data 0
+        旧名兼容：scute → turtle_scute、record_* → music_disc_*
         potion / splash_potion / lingering_potion、药水箭（arrow 且 Damage>0）
         written_book（标题、作者、代数、书页）、writable_book（书页原文）
-        附魔 tag.ench → minecraft:enchantments；保留 Slot
+        组件：
+          tag.ench → minecraft:enchantments；附魔书用 minecraft:stored_enchantments
+          tag.Damage → minecraft:damage，只给可损耗的非方块物品
+          tag.display.Name → minecraft:custom_name（JSON 文本组件）
+          tag.display.Lore → minecraft:lore
+          tag.customColor → minecraft:dyed_color {rgb}
+          tag.Unbreakable → minecraft:unbreakable
+          tag.RepairCost → minecraft:repair_cost
+          tag.Items → minecraft:container，递归转换，每项为 {slot, item}
+        保留 Slot
   返回 nil，调用方跳过整个物品：
         名称为空或 air、Count<=0
-        工具、武器、盔甲、食物、普通箭等非方块物品（缺物品名映射表）
-        带 tag.Items 的嵌套容器
+        物品表查不到的名字
         药水编号越界或为 decay、附魔编号越界或字段类型错误、书页不是字符串
   降级：
         没有 Block compound 的旧物品，名称已不在目标版本时（如 wool + Damage 14）
           legacy data value 查不到，退回默认状态（white_wool）
         床、旗帜、头颅的 Damage 是颜色或种类，不是方块数据，退回默认外观
-        不写耐久：目前支持的物品都没有耐久
-        tag 中其它字段（自定义名称、lore、CanPlaceOn 等）丢弃
+        嵌套容器里转不出的条目逐条跳过，容器本身保留
         § 格式码原样放进文本组件，不解析成样式
+        dyed_color 只写 rgb，不写 show_in_tooltip
 ```
+
+物品名表与生物群系表由 [third_party](third_party/README.md) 从上游生成并内嵌。
+调用方只需要调用这些入口，不需要知道表的来源与版本；换版本时只改 `third_party`。
 
 ### 方块实体规则：单格
 

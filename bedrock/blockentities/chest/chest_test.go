@@ -73,8 +73,11 @@ func TestItemsAndMetadata(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := nbt.Compound{
-				"id":         test.id,
-				"Items":      []nbt.Compound{{"id": "minecraft:oak_log", "count": int32(4), "Slot": int8(2)}},
+				"id": test.id,
+				"Items": []nbt.Compound{
+					{"id": "minecraft:oak_log", "count": int32(4), "Slot": int8(2)},
+					{"id": "minecraft:diamond_sword", "count": int32(1), "Slot": int8(3)},
+				},
 				"CustomName": `{"text":"§a\"储物箱\""}`, "LootTable": "minecraft:chests/simple_dungeon",
 			}
 			if got.State != base || !reflect.DeepEqual(got.BlockEntity, want) {
@@ -88,7 +91,7 @@ func TestSkippedItemsKeepChest(t *testing.T) {
 	got, err := Convert(blockentities.Input{
 		Base: `minecraft:chest ["facing"="north","type"="single"]`,
 		Source: nbt.Compound{"Items": []nbt.Compound{
-			{"Name": "minecraft:diamond_sword", "Count": int8(1)},
+			{"Name": "minecraft:not_a_real_item", "Count": int8(1)},
 		}},
 	})
 	if err != nil {

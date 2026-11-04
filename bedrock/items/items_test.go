@@ -99,7 +99,36 @@ func TestConvertItem(t *testing.T) {
 			src:  `{Name:"minecraft:writable_book",Count:1b}`,
 			want: `{id:"minecraft:writable_book",count:1,components:{"minecraft:writable_book_content":{pages:[]}}}`,
 		},
-		{name: "tool", src: `{Name:"minecraft:diamond_sword",Count:1b}`},
+		{
+			name: "tool",
+			src:  `{Name:"minecraft:diamond_sword",Count:1b}`,
+			want: `{id:"minecraft:diamond_sword",count:1}`,
+		},
+		{
+			name: "tool components",
+			src:  `{Name:"minecraft:diamond_sword",Count:1b,Damage:100s,tag:{Damage:5,display:{Name:"剑",Lore:["第一行","第二行"]},Unbreakable:1b,RepairCost:3}}`,
+			want: `{id:"minecraft:diamond_sword",count:1,components:{"minecraft:damage":5,"minecraft:custom_name":'{"text":"剑"}',"minecraft:lore":['{"text":"第一行"}','{"text":"第二行"}'],"minecraft:unbreakable":{},"minecraft:repair_cost":3}}`,
+		},
+		{
+			name: "dyed colour",
+			src:  `{Name:"minecraft:leather_chestplate",Count:1b,tag:{customColor:65280}}`,
+			want: `{id:"minecraft:leather_chestplate",count:1,components:{"minecraft:dyed_color":{rgb:65280}}}`,
+		},
+		{
+			name: "enchanted book",
+			src:  `{Name:"minecraft:enchanted_book",Count:1b,tag:{ench:[{id:17s,lvl:3s}]}}`,
+			want: `{id:"minecraft:enchanted_book",count:1,components:{"minecraft:stored_enchantments":{levels:{"minecraft:unbreaking":3}}}}`,
+		},
+		{
+			name: "legacy scute",
+			src:  `{Name:"minecraft:scute",Count:3b}`,
+			want: `{id:"minecraft:turtle_scute",count:3}`,
+		},
+		{
+			name: "legacy record",
+			src:  `{Name:"minecraft:record_13",Count:1b}`,
+			want: `{id:"minecraft:music_disc_13",count:1}`,
+		},
 		{name: "zero count", src: `{Name:"minecraft:oak_log",Count:0b}`},
 		{name: "negative count", src: `{Name:"minecraft:oak_log",Count:-1b}`},
 		{name: "air", src: `{Name:"minecraft:air",Count:1b}`},
@@ -109,8 +138,22 @@ func TestConvertItem(t *testing.T) {
 		{name: "out of range potion", src: `{Name:"minecraft:potion",Count:1b,Damage:47s}`},
 		{name: "decay arrow", src: `{Name:"minecraft:arrow",Count:1b,Damage:37s}`},
 		{name: "out of range arrow", src: `{Name:"minecraft:arrow",Count:1b,Damage:48s}`},
-		{name: "ordinary arrow", src: `{Name:"minecraft:arrow",Count:1b,Damage:0s}`},
-		{name: "nested container", src: `{Name:"minecraft:shulker_box",Count:1b,tag:{Items:[{Name:"minecraft:oak_log",Count:1b}]}}`},
+		{
+			name: "ordinary arrow",
+			src:  `{Name:"minecraft:arrow",Count:1b,Damage:0s}`,
+			want: `{id:"minecraft:arrow",count:1}`,
+		},
+		{
+			name: "nested container",
+			src:  `{Name:"minecraft:undyed_shulker_box",Count:1b,tag:{Items:[{Name:"minecraft:oak_log",Count:1b,Slot:0b}]}}`,
+			want: `{id:"minecraft:shulker_box",count:1,components:{"minecraft:container":[{slot:0,item:{id:"minecraft:oak_log",count:1}}]}}`,
+		},
+		{
+			// 容器里转不出的物品跳过，容器本身保留。
+			name: "nested container drops unknown item",
+			src:  `{Name:"minecraft:undyed_shulker_box",Count:1b,tag:{Items:[{Name:"minecraft:not_a_real_item",Count:1b,Slot:0b}]}}`,
+			want: `{id:"minecraft:shulker_box",count:1}`,
+		},
 		{name: "unknown enchantment", src: `{Name:"minecraft:oak_log",Count:1b,tag:{ench:[{id:17s,lvl:3s},{id:41s,lvl:1s}]}}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -33,12 +33,19 @@
 注册表由 `bedrock` 持有，让规则子包可以依赖共享类型而不形成循环导入。
 
 箱子物品由 `items.ConvertItem` 转换。
-它支持可查到 Java 方块名的方块物品，以及药水、药水箭和书本。
-附魔写入 Java 物品组件；组件是物品上的附加数据。
+方块物品走方块表；非方块物品、旧版改名和药水/书本由生成表与专门分支处理。
+附魔、耐久、名称、lore、颜色和容器内容等写入 Java 物品组件。
 无法转换的条目整体跳过，所有条目都跳过时仍保留空箱实体。
-范围、文字近似转换和映射数据来源见 [items 包说明](bedrock/items/doc.go)。
+范围与文字近似见 [items 包说明](bedrock/items/doc.go)。
 
 `bedrock/biomes`、`bedrock/actors` 只预留职责。
+
+## 映射数据
+
+物品名、生物群系、旗帜图案和实体名由 [third_party](third_party/README.md) 生成并内嵌。
+不要在业务代码里手写这些表，也不要直接改 `data/tables.json.gz`。
+换版本时改 `third_party/sources.lock.json` 的 ref、commit 与 sha256，再运行生成器。
+方块表与旧状态升级规则仍由 neomega-blocks 维护，不要复制进本模块。
 
 ## 验收
 

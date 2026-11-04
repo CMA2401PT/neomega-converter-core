@@ -1,0 +1,29 @@
+{
+  "java_version": "1.21.4",
+  "bedrock_version": "1.21.50",
+  "sources": [
+    {
+      "name": "GeyserMC/mappings",
+      "url": "https://github.com/GeyserMC/mappings",
+      "ref": "feature/1.21.4",
+      "commit": "e8089e117605e60a5ced120926c49fae7617c665",
+      "license": "MIT",
+      "files": {
+        "items.json": "349f861b52c03579ce68bafe7c95c7d7c1a56e3dc724a75043d5581ec3468782",
+        "biomes.json": "bc1616dc48730aa8f8b6897334efaf0ecf70a1f281131795311ed0e483e36aad"
+      }
+    },
+    {
+      "name": "pmmp/BedrockData",
+      "url": "https://github.com/pmmp/BedrockData",
+      "ref": "bedrock-1.21.50",
+      "commit": "6e819f36d781866ce63d2406be2ce7f2d1afd9ad",
+      "license": "CC0-1.0",
+      "files": {
+        "biome_id_map.json": "26160a2c99fc0cbf326072c1ca63c4ad803244b940f43285c6b13690aee23725",
+        "banner_patterns.json": "4d14ecbc80ae3b29d5936d73e6c8ebd65236b815363a0cba10ea8233226e6662",
+        "entity_id_map.json": "99c3738ba9db062109a47504aa613136432af4ee9ddad58eab711ebc5424b574"
+      }
+    }
+  ]
+}
