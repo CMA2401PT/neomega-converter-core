@@ -71,16 +71,37 @@ type patternEntry struct {
 	Java string `json:"java"`
 }
 
+// 反向索引：Java → Bedrock。表里同时保存两个方向，调用方不用自己反查。
+
+type javaItemEntry struct {
+	Java    string `json:"java"`
+	Bedrock string `json:"bedrock"`
+	Data    int32  `json:"data"`
+}
+
+type javaBiomeEntry struct {
+	Java string `json:"java"`
+	ID   int32  `json:"id"`
+}
+
+type javaPatternEntry struct {
+	Java string `json:"java"`
+	Code string `json:"code"`
+}
+
 type table struct {
-	Generator      int            `json:"generator"`
-	JavaVersion    string         `json:"java_version"`
-	BedrockVersion string         `json:"bedrock_version"`
-	Sources        []sourceInfo   `json:"sources"`
-	Stats          stats          `json:"stats"`
-	Items          []itemEntry    `json:"items"`
-	Biomes         []biomeEntry   `json:"biomes"`
-	Patterns       []patternEntry `json:"patterns"`
-	Entities       []string       `json:"entities"`
+	Generator      int                `json:"generator"`
+	JavaVersion    string             `json:"java_version"`
+	BedrockVersion string             `json:"bedrock_version"`
+	Sources        []sourceInfo       `json:"sources"`
+	Stats          stats              `json:"stats"`
+	Items          []itemEntry        `json:"items"`
+	Biomes         []biomeEntry       `json:"biomes"`
+	Patterns       []patternEntry     `json:"patterns"`
+	Entities       []string           `json:"entities"`
+	JavaItems      []javaItemEntry    `json:"java_items"`
+	JavaBiomes     []javaBiomeEntry   `json:"java_biomes"`
+	JavaPatterns   []javaPatternEntry `json:"java_patterns"`
 }
 
 type stats struct {
@@ -93,6 +114,9 @@ type stats struct {
 	Biomes              int `json:"biomes"`
 	Patterns            int `json:"patterns"`
 	Entities            int `json:"entities"`
+	JavaItemIndex       int `json:"java_item_index"`
+	JavaBiomeIndex      int `json:"java_biome_index"`
+	JavaPatternIndex    int `json:"java_pattern_index"`
 }
 
 func main() {
@@ -165,6 +189,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	javaItems, err := buildJavaItems(contents["GeyserMC/mappings/items.json"])
+	if err != nil {
+		return err
+	}
+	javaBiomes, err := buildJavaBiomes(contents["GeyserMC/mappings/biomes.json"])
+	if err != nil {
+		return err
+	}
+	javaPatterns, err := buildJavaPatterns(contents["pmmp/BedrockData/banner_patterns.json"])
+	if err != nil {
+		return err
+	}
 	itemStats.BiomeCollisions = biomeCollisions
 
 	tbl := table{
@@ -177,10 +213,16 @@ func run() error {
 		Biomes:         biomes,
 		Patterns:       patterns,
 		Entities:       entities,
+		JavaItems:      javaItems,
+		JavaBiomes:     javaBiomes,
+		JavaPatterns:   javaPatterns,
 	}
 	tbl.Stats.Biomes = len(biomes)
 	tbl.Stats.Patterns = len(patterns)
 	tbl.Stats.Entities = len(entities)
+	tbl.Stats.JavaItemIndex = len(javaItems)
+	tbl.Stats.JavaBiomeIndex = len(javaBiomes)
+	tbl.Stats.JavaPatternIndex = len(javaPatterns)
 
 	if err := writeTable(*out, tbl); err != nil {
 		return err
@@ -383,6 +425,52 @@ func buildPatterns(data []byte) ([]patternEntry, error) {
 		entries = append(entries, patternEntry{Code: pattern.ID, Java: namespaced(name)})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Code < entries[j].Code })
+	return entries, nil
+}
+
+// buildJavaItems 直接使用 Geyser 的 Java → Bedrock 对应，不反向推算，
+// 因为正向表里的同键冲突是按名字偏好解决的，反推会丢失候选。
+func buildJavaItems(data []byte) ([]javaItemEntry, error) {
+	var raw map[string]rawItem
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("items.json: %w", err)
+	}
+	entries := make([]javaItemEntry, 0, len(raw))
+	for java, item := range raw {
+		entries = append(entries, javaItemEntry{
+			Java: java, Bedrock: namespaced(item.BedrockIdentifier), Data: item.BedrockData,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Java < entries[j].Java })
+	return entries, nil
+}
+
+func buildJavaBiomes(data []byte) ([]javaBiomeEntry, error) {
+	var raw map[string]rawBiome
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("biomes.json: %w", err)
+	}
+	entries := make([]javaBiomeEntry, 0, len(raw))
+	for java, biome := range raw {
+		entries = append(entries, javaBiomeEntry{Java: java, ID: biome.BedrockID})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Java < entries[j].Java })
+	return entries, nil
+}
+
+func buildJavaPatterns(data []byte) ([]javaPatternEntry, error) {
+	var raw map[string]rawPattern
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("banner_patterns.json: %w", err)
+	}
+	entries := make([]javaPatternEntry, 0, len(raw))
+	for name, pattern := range raw {
+		if pattern.ID == "" {
+			continue
+		}
+		entries = append(entries, javaPatternEntry{Java: namespaced(name), Code: pattern.ID})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Java < entries[j].Java })
 	return entries, nil
 }
 

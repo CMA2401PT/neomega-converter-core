@@ -97,3 +97,29 @@ func TestSources(t *testing.T) {
 		t.Fatalf("第二个来源 = %+v", sources[1])
 	}
 }
+
+func TestReverseLookups(t *testing.T) {
+	for _, test := range []struct {
+		java    string
+		bedrock string
+		data    int32
+	}{
+		{"minecraft:diamond_sword", "minecraft:diamond_sword", 0},
+		{"minecraft:red_bed", "minecraft:bed", 14},
+		{"minecraft:shulker_box", "minecraft:undyed_shulker_box", 0},
+	} {
+		bedrock, data, ok := BedrockItem(test.java)
+		if !ok || bedrock != test.bedrock || data != test.data {
+			t.Fatalf("BedrockItem(%q) = %q, %d, %v", test.java, bedrock, data, ok)
+		}
+	}
+	if _, _, ok := BedrockItem("minecraft:not_a_real_item"); ok {
+		t.Fatal("unknown Java item resolved")
+	}
+	if id, ok := BedrockBiome("minecraft:beach"); !ok || id != 16 {
+		t.Fatalf("BedrockBiome(beach) = %d, %v", id, ok)
+	}
+	if code, ok := BannerPatternCode("minecraft:border"); !ok || code != "bo" {
+		t.Fatalf("BannerPatternCode(border) = %q, %v", code, ok)
+	}
+}

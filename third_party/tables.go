@@ -47,15 +47,34 @@ type patternEntry struct {
 	Java string `json:"java"`
 }
 
+type javaItemEntry struct {
+	Java    string `json:"java"`
+	Bedrock string `json:"bedrock"`
+	Data    int32  `json:"data"`
+}
+
+type javaBiomeEntry struct {
+	Java string `json:"java"`
+	ID   int32  `json:"id"`
+}
+
+type javaPatternEntry struct {
+	Java string `json:"java"`
+	Code string `json:"code"`
+}
+
 type file struct {
-	Generator      int            `json:"generator"`
-	JavaVersion    string         `json:"java_version"`
-	BedrockVersion string         `json:"bedrock_version"`
-	Sources        []Source       `json:"sources"`
-	Items          []itemEntry    `json:"items"`
-	Biomes         []biomeEntry   `json:"biomes"`
-	Patterns       []patternEntry `json:"patterns"`
-	Entities       []string       `json:"entities"`
+	Generator      int                `json:"generator"`
+	JavaVersion    string             `json:"java_version"`
+	BedrockVersion string             `json:"bedrock_version"`
+	Sources        []Source           `json:"sources"`
+	Items          []itemEntry        `json:"items"`
+	Biomes         []biomeEntry       `json:"biomes"`
+	Patterns       []patternEntry     `json:"patterns"`
+	Entities       []string           `json:"entities"`
+	JavaItems      []javaItemEntry    `json:"java_items"`
+	JavaBiomes     []javaBiomeEntry   `json:"java_biomes"`
+	JavaPatterns   []javaPatternEntry `json:"java_patterns"`
 }
 
 type itemKey struct {
@@ -64,11 +83,14 @@ type itemKey struct {
 }
 
 type dataset struct {
-	file     file
-	items    map[itemKey]string
-	biomes   map[int32]string
-	patterns map[string]string
-	entities map[string]bool
+	file         file
+	items        map[itemKey]string
+	biomes       map[int32]string
+	patterns     map[string]string
+	entities     map[string]bool
+	javaItems    map[string]javaItemEntry
+	javaBiomes   map[string]int32
+	javaPatterns map[string]string
 }
 
 var load = sync.OnceValue(func() *dataset {
@@ -86,11 +108,14 @@ var load = sync.OnceValue(func() *dataset {
 		panic(fmt.Errorf("third_party: 解析内嵌表: %w", err))
 	}
 	data := &dataset{
-		file:     parsed,
-		items:    make(map[itemKey]string, len(parsed.Items)),
-		biomes:   make(map[int32]string, len(parsed.Biomes)),
-		patterns: make(map[string]string, len(parsed.Patterns)),
-		entities: make(map[string]bool, len(parsed.Entities)),
+		file:         parsed,
+		items:        make(map[itemKey]string, len(parsed.Items)),
+		biomes:       make(map[int32]string, len(parsed.Biomes)),
+		patterns:     make(map[string]string, len(parsed.Patterns)),
+		entities:     make(map[string]bool, len(parsed.Entities)),
+		javaItems:    make(map[string]javaItemEntry, len(parsed.JavaItems)),
+		javaBiomes:   make(map[string]int32, len(parsed.JavaBiomes)),
+		javaPatterns: make(map[string]string, len(parsed.JavaPatterns)),
 	}
 	for _, entry := range parsed.Items {
 		data.items[itemKey{name: entry.Bedrock, data: entry.Data}] = entry.Java
@@ -103,6 +128,15 @@ var load = sync.OnceValue(func() *dataset {
 	}
 	for _, name := range parsed.Entities {
 		data.entities[name] = true
+	}
+	for _, entry := range parsed.JavaItems {
+		data.javaItems[entry.Java] = entry
+	}
+	for _, entry := range parsed.JavaBiomes {
+		data.javaBiomes[entry.Java] = entry.ID
+	}
+	for _, entry := range parsed.JavaPatterns {
+		data.javaPatterns[entry.Java] = entry.Code
 	}
 	return data
 })
@@ -146,6 +180,27 @@ func Biome(id int32) (string, bool) {
 func BannerPattern(code string) (string, bool) {
 	java, ok := load().patterns[code]
 	return java, ok
+}
+
+// BedrockItem 把 Java 物品 id 转成 Bedrock 名称和 data value。
+func BedrockItem(java string) (bedrock string, data int32, ok bool) {
+	entry, ok := load().javaItems[prefixed(java)]
+	if !ok {
+		return "", 0, false
+	}
+	return entry.Bedrock, entry.Data, true
+}
+
+// BedrockBiome 把 Java 群系名转成 Bedrock 数字 id。
+func BedrockBiome(java string) (int32, bool) {
+	id, ok := load().javaBiomes[prefixed(java)]
+	return id, ok
+}
+
+// BannerPatternCode 把 Java 图案名转成 Bedrock 图案代码。
+func BannerPatternCode(java string) (string, bool) {
+	code, ok := load().javaPatterns[prefixed(java)]
+	return code, ok
 }
 
 // KnownEntity 报告 Bedrock 是否有这个实体标识。

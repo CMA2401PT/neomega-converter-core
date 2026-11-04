@@ -24,6 +24,7 @@
 | `biomes` | `Bedrock 群系数字 id → Java 群系名` | Geyser 的 Java↔Bedrock 对应与 pmmp 的编号合并；同 id 多候选时优先同名 |
 | `patterns` | `Bedrock 图案代码 → Java 图案名` | pmmp 的代码表；上游缺的 4 个新图案由转换规则自己补 |
 | `entities` | Bedrock 实体标识集合 | 只用于判断“已知/未知实体”，不包含 Java 侧映射 |
+| `java_items` / `java_biomes` / `java_patterns` | Java → Bedrock | 反向索引用 Geyser/pmmp 的原始方向生成，不由正向表反推；用于 Java → Bedrock 转换 |
 
 物品表覆盖全部 Java 物品（含块物品）。块物品在转换时仍优先走
 `neomega-blocks` 的 data value 转换，这张表负责补它不认识的名字和所有非块物品。
@@ -72,7 +73,8 @@ go run ./third_party/gen -geyser /tmp/mcdata/geyser -pmmp /tmp/mcdata/pmmp
   可可豆等少数物品放置的方块与物品名不同，允许 2% 误差；超过即失败。
 - 统计写进表头：Java 物品数、键数、冲突数、块物品数与不匹配数、群系/图案/实体数。
   当前值是 1385 个物品、1379 个键、5 个冲突、955 个块物品、14 个不同名、60 个群系
-  （2 个冲突）、38 个图案、129 个实体名。
+  （2 个冲突）、38 个图案、129 个实体名；反向索引另有 1385 个 Java 物品、65 个
+  Java 群系和 38 个 Java 图案名。
 
 ## 许可
 
