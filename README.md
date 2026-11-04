@@ -164,13 +164,14 @@ ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *ConvertedCh
 `export.ConvertWorld` 扫描源世界并逐根写出 Java 柱子，返回转换报告。
 
 ```text
-ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict}) → (Report, err)
-  逐根柱子：ScanChunks → ConvertChunk → ToJavaChunk / ToJavaEntities → 写 region / entities
+ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict, IncludeUnfinished}) → (Report, err)
+  逐根柱子：ScanChunks → 跳过未完成柱子 → ConvertChunk → ToJavaChunk / ToJavaEntities → 写 region / entities
+  默认跳过 0x36 FinalizedState < 2 的柱子；记录缺失按已完成处理，和 mcconv 一致
   不跑 fixer；需要按邻居重算形状的格子登记进 PostProcessing，游戏加载区块时重算
     登记：栅栏、栅栏门、玻璃板、铁栏杆、楼梯、墙、红石线、绊线、紫颂植物
     其余方块不登记：重算会让缺支撑的方块掉落
   err：Strict 时第一根 ConvertChunk 失败的柱子；写盘失败
-  Report：每个维度的柱子数、失败的柱子、各诊断种类合计、未知状态前 10、
+  Report：每个维度的柱子数、失败的柱子、跳过的柱子数、各诊断种类合计、未知状态前 10、
           不支持的方块实体按 id 合计、超出 Java 高度被丢弃的 section 数、方块实体数、实体数
 
 ```

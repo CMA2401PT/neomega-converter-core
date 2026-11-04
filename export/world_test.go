@@ -148,3 +148,59 @@ func TestConvertWorldStrict(t *testing.T) {
 		}
 	}
 }
+
+func TestConvertWorldSkipsUnfinished(t *testing.T) {
+	source := openBedrock(t)
+	chunk := sourceChunk(t, celler.ChunkPos{}, 0, 0)
+	chunk.Records[string([]byte{cellerbedrock.TagFinalizedState})] = []byte{1}
+	if err := source.WriteChunk(chunk, nil); err != nil {
+		t.Fatal(err)
+	}
+	target := openJava(t)
+	report, err := ConvertWorld(source, target, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Chunks[0] != 0 || report.Skipped != 1 {
+		t.Fatalf("report=%+v", report)
+	}
+	if _, err := target.ReadChunk(java.Overworld, celler.ChunkPos{}); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("unfinished chunk written: %v", err)
+	}
+
+	all := openJava(t)
+	report, err = ConvertWorld(source, all, ConvertOptions{IncludeUnfinished: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Chunks[0] != 1 || report.Skipped != 0 {
+		t.Fatalf("all=%+v", report)
+	}
+	if _, err := all.ReadChunk(java.Overworld, celler.ChunkPos{}); err != nil {
+		t.Fatalf("included chunk missing: %v", err)
+	}
+}
+
+func TestFinalizedState(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		data []byte
+		want int32
+	}{
+		{"missing", nil, 2},
+		{"byte finished", []byte{2}, 2},
+		{"byte unfinished", []byte{1}, 1},
+		{"int unfinished", []byte{1, 0, 0, 0}, 1},
+		{"unknown length", []byte{1, 2}, 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			chunk := cellerbedrock.NewChunk(celler.ChunkPos{}, 0)
+			if test.data != nil {
+				chunk.Records[string([]byte{cellerbedrock.TagFinalizedState})] = test.data
+			}
+			if got := finalizedState(chunk); got != test.want {
+				t.Fatalf("finalizedState = %d, want %d", got, test.want)
+			}
+		})
+	}
+}

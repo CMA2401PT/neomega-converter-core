@@ -1,6 +1,7 @@
 package export
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sort"
@@ -21,6 +22,8 @@ type ConvertOptions struct {
 	Dimensions  []int32
 	Strict      bool
 	DataVersion int32
+	// IncludeUnfinished 也转换尚未生成完成的柱子；默认跳过，和 mcconv 一致。
+	IncludeUnfinished bool
 }
 
 type FailedChunk struct {
@@ -44,8 +47,25 @@ type Report struct {
 	UnknownStates            []StateCount
 	UnsupportedBlockEntities map[string]uint64
 	DroppedSections          map[int32]uint64
+	Skipped                  uint64
 	BlockEntities            uint64
 	Entities                 uint64
+}
+
+// finalizedState 读取 0x36 记录的生成状态。缺失按已完成处理，和 mcconv 一致。
+func finalizedState(chunk *cellerbedrock.Chunk) int32 {
+	data, ok := chunk.Records[string([]byte{cellerbedrock.TagFinalizedState})]
+	if !ok {
+		return 2
+	}
+	switch len(data) {
+	case 1:
+		return int32(int8(data[0]))
+	case 4:
+		return int32(binary.LittleEndian.Uint32(data))
+	default:
+		return 2
+	}
 }
 
 func ConvertWorld(source *cellerbedrock.World, target *java.World, options ConvertOptions) (report Report, err error) {
@@ -91,6 +111,10 @@ func ConvertWorld(source *cellerbedrock.World, target *java.World, options Conve
 	err = source.ScanChunks(func(sourceChunk *cellerbedrock.Chunk) error {
 		dim, included := selected[sourceChunk.Dimension]
 		if !included {
+			return nil
+		}
+		if !options.IncludeUnfinished && finalizedState(sourceChunk) < 2 {
+			report.Skipped++
 			return nil
 		}
 		chunk, err := bedrock.ConvertChunk(sourceChunk)
