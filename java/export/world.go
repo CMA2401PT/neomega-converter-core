@@ -24,6 +24,7 @@ type FailedChunk struct {
 
 type Report struct {
 	Chunks       map[int32]uint64
+	Entities     uint64
 	FailedChunks []FailedChunk
 	Diagnostics  map[converter.DiagnosticKind]uint64
 }
@@ -55,9 +56,19 @@ func ConvertWorld(source *cellerjava.World, target *cellerbedrock.World, options
 			if err != nil {
 				return report.failed(id, pos, err, options.Strict)
 			}
-			converted, err := converterjava.ConvertChunk(pos, id, chunk)
+			actors, actorErr := source.ReadChunkEntities(dim, pos)
+			if actorErr != nil {
+				actors = nil
+			}
+			converted, err := converterjava.ConvertChunkWithActors(pos, id, chunk, actors)
 			if err != nil {
 				return report.failed(id, pos, err, options.Strict)
+			}
+			if actorErr != nil {
+				// 实体记录坏了也要写出地形，问题记进诊断。
+				converted.Diagnostics = append(converted.Diagnostics, converter.Diagnostic{
+					Kind: converter.NBTError, Err: actorErr,
+				})
 			}
 			if err := WriteChunk(target, converted); err != nil {
 				return err
@@ -69,6 +80,7 @@ func ConvertWorld(source *cellerjava.World, target *cellerbedrock.World, options
 				}
 				report.Diagnostics[diagnostic.Kind] += count
 			}
+			report.Entities += uint64(len(converted.Actors))
 			report.Chunks[id]++
 			return nil
 		})

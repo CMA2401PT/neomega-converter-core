@@ -30,6 +30,15 @@ func WriteChunk(world *cellerbedrock.World, chunk *converter.BedrockChunk) error
 			return err
 		}
 	}
+	if len(chunk.Actors) > 0 {
+		actors := make([]cellerbedrock.Actor, len(chunk.Actors))
+		for index, actor := range chunk.Actors {
+			actors[index] = cellerbedrock.Actor{ID: actor.ID, NBT: nbt.Document{Value: actor.NBT}}
+		}
+		if err := world.WriteChunkActors(chunk.Dimension, chunk.Pos, actors); err != nil {
+			return err
+		}
+	}
 	if biomes, ok := biomes3D(chunk); ok {
 		if err := target.SetBiomes3D(biomes); err != nil {
 			return err

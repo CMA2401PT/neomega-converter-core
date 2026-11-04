@@ -138,3 +138,23 @@ func TestConvertChunkUnsupportedBlockEntity(t *testing.T) {
 		t.Fatalf("diagnostics: %+v", got.Diagnostics)
 	}
 }
+
+func TestConvertChunkWithActors(t *testing.T) {
+	chunk := cellerjava.NewChunk(celler.ChunkPos{}, 4189)
+	blocks := layer_storage.MakePaletteStorage(ir.IRBlock("minecraft:stone []"))
+	if err := chunk.SetSection(&cellerjava.Section{Y: 0, Blocks: blocks}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ConvertChunkWithActors(celler.ChunkPos{}, 0, chunk, []nbt.Compound{{
+		"id": "minecraft:zombie", "Pos": []float64{0, 64, 0},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Actors) != 1 || got.Actors[0].NBT["identifier"] != "minecraft:zombie" {
+		t.Fatalf("actors: %#v", got.Actors)
+	}
+	if len(got.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %+v", got.Diagnostics)
+	}
+}

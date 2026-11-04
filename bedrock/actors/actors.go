@@ -9,39 +9,10 @@ import (
 
 	"neomega-converter-core/bedrock/internal/textcomponent"
 	"neomega-converter-core/bedrock/items"
+	"neomega-converter-core/mapping"
 	tables "neomega-converter-core/third_party"
 	nbt "neomega-nbt/presets/v1"
 )
-
-// Bedrock 与 Java 名称不同的实体；其余同名。
-var javaIDs = map[string]string{
-	"zombie_pigman":       "zombified_piglin",
-	"evocation_illager":   "evoker",
-	"villager_v2":         "villager",
-	"zombie_villager_v2":  "zombie_villager",
-	"tropicalfish":        "tropical_fish",
-	"ender_crystal":       "end_crystal",
-	"xp_orb":              "experience_orb",
-	"fireworks_rocket":    "firework_rocket",
-	"eye_of_ender_signal": "eye_of_ender",
-	"thrown_trident":      "trident",
-	"xp_bottle":           "experience_bottle",
-}
-
-// 瞬时实体不转换：它们要么没有 Java 对应物，要么没有保留价值。
-var skipped = map[string]bool{
-	"arrow": true, "spectral_arrow": true, "trident": true, "snowball": true, "egg": true,
-	"ender_pearl": true, "potion": true, "splash_potion": true, "lingering_potion": true,
-	"fireball": true, "small_fireball": true, "dragon_fireball": true, "wither_skull": true,
-	"shulker_bullet": true, "llama_spit": true, "fishing_bobber": true, "firework_rocket": true,
-	"eye_of_ender": true, "experience_bottle": true, "area_effect_cloud": true, "lightning_bolt": true,
-	"marker": true, "block_display": true, "item_display": true, "text_display": true, "interaction": true,
-	"wind_charge": true, "breeze_wind_charge": true, "evoker_fangs": true, "player": true,
-	"fishing_hook": true, "xp_bottle": true, "thrown_trident": true, "fireworks_rocket": true,
-	"eye_of_ender_signal": true, "wither_skull_dangerous": true, "tripod_camera": true, "agent": true, "npc": true,
-}
-
-var boatWoods = []string{"oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove", "bamboo", "cherry", "pale_oak"}
 
 // Convert 返回 Java 实体。known 表示这是否是已知的 Bedrock 实体：
 // 已知但被跳过或数据不完整时返回 nil, true；未知标识返回 nil, false。
@@ -57,10 +28,10 @@ func ConvertWithReport(source nbt.Compound, report func(item string)) (entity nb
 	if short == "" {
 		return nil, false
 	}
-	if skipped[short] {
+	if mapping.SkipEntity(short) {
 		return nil, true
 	}
-	javaID, ok := javaIDs[short]
+	javaID, ok := mapping.JavaEntityID(short)
 	if !ok {
 		if !tables.KnownEntity(short) {
 			return nil, false
@@ -148,8 +119,8 @@ func ConvertWithReport(source nbt.Compound, report func(item string)) (entity nb
 
 func boatID(source nbt.Compound, chest bool) string {
 	wood := "oak"
-	if variant, ok := number(source["Variant"]); ok && variant >= 0 && int(variant) < len(boatWoods) {
-		wood = boatWoods[variant]
+	if variant, ok := number(source["Variant"]); ok && variant >= 0 && int(variant) < len(mapping.BoatWoods) {
+		wood = mapping.BoatWoods[variant]
 	}
 	kind := "_boat"
 	if wood == "bamboo" {

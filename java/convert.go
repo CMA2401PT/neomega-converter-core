@@ -17,12 +17,14 @@ import (
 	"neomega-blocks/ir"
 	converts "neomega-blocks/presets/block-converts/v1"
 	"neomega-converter-core"
+	javaactors "neomega-converter-core/java/actors"
 	"neomega-converter-core/java/blockentities"
 	"neomega-converter-core/java/blockentities/banner"
 	"neomega-converter-core/java/blockentities/chest"
 	"neomega-converter-core/java/blockentities/furnace"
 	"neomega-converter-core/java/blockentities/sign"
 	tables "neomega-converter-core/third_party"
+	nbt "neomega-nbt/presets/v1"
 )
 
 // Java 方块实体 id → Bedrock 规则。
@@ -94,6 +96,38 @@ func ConvertChunk(pos celler.ChunkPos, dimension int32, src *cellerjava.Chunk) (
 			Count: unknown[state],
 			Err:   fmt.Errorf("unknown Java block: %s", state),
 		})
+	}
+	return result, nil
+}
+
+// ConvertChunkWithActors 在方块转换之后追加实体列表（来自 Java 的 entities region）。
+func ConvertChunkWithActors(pos celler.ChunkPos, dimension int32, src *cellerjava.Chunk, actors []nbt.Compound) (*converter.BedrockChunk, error) {
+	result, err := ConvertChunk(pos, dimension, src)
+	if err != nil {
+		return nil, err
+	}
+	unknown := make(map[string]int)
+	for _, source := range actors {
+		entity, id, known := javaactors.Convert(source, result.ReportUnknownItem)
+		if entity == nil {
+			if known {
+				continue
+			}
+			identifier, _ := source["id"].(string)
+			index, exists := unknown[identifier]
+			if !exists {
+				index = len(result.Diagnostics)
+				unknown[identifier] = index
+				result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{
+					Kind:     converter.UnknownEntity,
+					EntityID: identifier,
+					Err:      fmt.Errorf("unknown Java entity: %q", identifier),
+				})
+			}
+			result.Diagnostics[index].Count++
+			continue
+		}
+		result.Actors = append(result.Actors, converter.BedrockActor{ID: id, NBT: entity})
 	}
 	return result, nil
 }

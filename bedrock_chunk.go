@@ -16,8 +16,14 @@ type BedrockChunk struct {
 	Sections  map[int32]*BedrockSection
 	// BlockEntities 每项是一个带 id/x/y/z 的 Bedrock 方块实体 Compound。
 	BlockEntities []nbt.Compound
-	Actors        []nbt.Compound
+	Actors        []BedrockActor
 	Diagnostics   []Diagnostic
+}
+
+// BedrockActor 是一条待写入 digp/actorprefix 的实体：ID 是 8 字节键。
+type BedrockActor struct {
+	ID  [8]byte
+	NBT nbt.Compound
 }
 
 type BedrockSection struct {

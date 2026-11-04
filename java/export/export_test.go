@@ -8,6 +8,7 @@ import (
 	cellerjava "celler/java"
 	"celler/layer_storage"
 	"neomega-blocks/ir"
+	"neomega-converter-core"
 	converterjava "neomega-converter-core/java"
 	nbt "neomega-nbt/presets/v1"
 )
@@ -128,5 +129,27 @@ func TestConvertWorld(t *testing.T) {
 	}
 	if _, err := target.ReadChunk(0, celler.ChunkPos{}); err != nil {
 		t.Fatalf("chunk not written: %v", err)
+	}
+}
+
+func TestWriteChunkActors(t *testing.T) {
+	converted, err := converterjava.ConvertChunk(celler.ChunkPos{}, 0, javaChestChunk(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	converted.Actors = []converter.BedrockActor{{
+		ID:  [8]byte{1, 2, 3, 4, 5, 6, 7, 8},
+		NBT: nbt.Compound{"identifier": "minecraft:zombie"},
+	}}
+	world := openBedrock(t)
+	if err := WriteChunk(world, converted); err != nil {
+		t.Fatal(err)
+	}
+	documents, err := world.ReadChunkActors(0, celler.ChunkPos{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(documents) != 1 || documents[0].Value["identifier"] != "minecraft:zombie" {
+		t.Fatalf("actors: %#v", documents)
 	}
 }
