@@ -15,7 +15,7 @@ func Convert(input blockentities.Input) (blockentities.Result, error) {
 		entity["sherds"] = sherds
 	}
 	if raw, ok := input.Source["item"].(nbt.Compound); ok {
-		if converted := items.ConvertItem(raw); converted != nil {
+		if converted := items.ConvertItemReported(raw, input.ReportItem); converted != nil {
 			delete(converted, "Slot")
 			entity["item"] = converted
 		}

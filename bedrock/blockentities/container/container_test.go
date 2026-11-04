@@ -84,3 +84,20 @@ func TestConvertKeepsState(t *testing.T) {
 		t.Fatalf("id: %v", got.BlockEntity["id"])
 	}
 }
+
+func TestCommonReportsUnknownItem(t *testing.T) {
+	var reported []string
+	_, err := Common(blockentities.Input{
+		Source: nbt.Compound{"Items": []nbt.Compound{
+			{"Name": "minecraft:not_a_real_item", "Count": int8(1)},
+			{"Name": "minecraft:oak_log", "Count": int8(1)},
+		}},
+		ReportItem: func(name string) { reported = append(reported, name) },
+	}, "minecraft:barrel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reported) != 1 || reported[0] != "minecraft:not_a_real_item" {
+		t.Fatalf("reported: %v", reported)
+	}
+}

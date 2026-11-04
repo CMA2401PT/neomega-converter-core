@@ -236,3 +236,29 @@ func TestConvertWorldActors(t *testing.T) {
 		t.Fatalf("entity record: %v", err)
 	}
 }
+
+func TestConvertWorldActorErrorKeepsTerrain(t *testing.T) {
+	source, target := openBedrock(t), openJava(t)
+	pos := celler.ChunkPos{}
+	if err := source.WriteChunk(sourceChunk(t, pos, 0, 0), nil); err != nil {
+		t.Fatal(err)
+	}
+	// 长度不是 8 的倍数：读取实体失败，但地形必须照常转换。
+	digp := append([]byte("digp"), cellerbedrock.ChunkPrefix(pos, 0)...)
+	if err := source.DB.Put(digp, []byte{1}, nil); err != nil {
+		t.Fatal(err)
+	}
+	report, err := ConvertWorld(source, target, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Chunks[0] != 1 || len(report.FailedChunks) != 0 {
+		t.Fatalf("report=%+v", report)
+	}
+	if report.Diagnostics[converter.NBTError] != 1 {
+		t.Fatalf("diagnostics=%+v", report.Diagnostics)
+	}
+	if _, err := target.ReadChunk(java.Overworld, pos); err != nil {
+		t.Fatalf("terrain lost: %v", err)
+	}
+}

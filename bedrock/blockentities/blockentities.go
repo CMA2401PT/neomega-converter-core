@@ -16,6 +16,8 @@ type Input struct {
 	SourceState ir.IRBlock
 	// 相同坐标在不同维度属于不同实体，生成身份时需要区分。
 	Dimension int32
+	// ReportItem 在物品转不出时收到物品名。由区块入口注入，规则必须允许为 nil。
+	ReportItem func(name string)
 }
 
 type Result struct {

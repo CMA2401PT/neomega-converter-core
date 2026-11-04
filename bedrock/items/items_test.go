@@ -1,6 +1,7 @@
 package items
 
 import (
+	"reflect"
 	"testing"
 
 	"neomega-blocks/ir"
@@ -237,4 +238,29 @@ func snbt(t *testing.T, value nbt.Compound) string {
 		t.Fatal(err)
 	}
 	return text
+}
+
+func TestConvertItemReported(t *testing.T) {
+	var reported []string
+	report := func(name string) { reported = append(reported, name) }
+	if got := ConvertItemReported(nbt.Compound{"Name": "minecraft:not_a_real_item", "Count": int8(1)}, report); got != nil {
+		t.Fatalf("unknown item converted: %v", got)
+	}
+	if got := ConvertItemReported(nbt.Compound{"Name": "minecraft:potion", "Count": int8(1), "Damage": int16(99)}, report); got != nil {
+		t.Fatalf("bad potion converted: %v", got)
+	}
+	// 空气、空名字和非正数量不是“转换失败”，不应上报。
+	if got := ConvertItemReported(nbt.Compound{"Name": "minecraft:air", "Count": int8(1)}, report); got != nil {
+		t.Fatal("air converted")
+	}
+	if got := ConvertItemReported(nbt.Compound{"Name": "minecraft:oak_log", "Count": int8(0)}, report); got != nil {
+		t.Fatal("empty stack converted")
+	}
+	if got := ConvertItemReported(nbt.Compound{"Name": "minecraft:oak_log", "Count": int8(1)}, report); got == nil {
+		t.Fatal("valid item skipped")
+	}
+	want := []string{"minecraft:not_a_real_item", "minecraft:potion"}
+	if !reflect.DeepEqual(reported, want) {
+		t.Fatalf("reported = %v, want %v", reported, want)
+	}
 }

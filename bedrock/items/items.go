@@ -40,6 +40,12 @@ var bedrockRenames = map[string]string{
 // ConvertItem 把一个 Bedrock 物品 compound 转成 Java 物品 compound。
 // 无法转换时返回 nil，调用方跳过整个物品。
 func ConvertItem(src nbt.Compound) nbt.Compound {
+	return ConvertItemReported(src, nil)
+}
+
+// ConvertItemReported 与 ConvertItem 相同，但转换失败时把物品名交给 report。
+// report 可以为 nil；空气、空名字和非正数量不算失败，不报告。
+func ConvertItemReported(src nbt.Compound, report func(name string)) nbt.Compound {
 	name, _ := src["Name"].(string)
 	count, _ := src["Count"].(int8)
 	if name == "" || name == "minecraft:air" || count <= 0 {
@@ -52,10 +58,12 @@ func ConvertItem(src nbt.Compound) nbt.Compound {
 	aux, _ := number(src["Damage"])
 	javaID, blockItem := resolveID(src, name, aux)
 	if javaID == "" {
+		notify(report, name)
 		return nil
 	}
 	comps, ok := components(tag, javaID, aux, blockItem)
 	if !ok {
+		notify(report, name)
 		return nil
 	}
 	out := nbt.Compound{"id": javaID, "count": int32(count)}
@@ -258,6 +266,12 @@ func damageable(javaID string) bool {
 		return false
 	}
 	return true
+}
+
+func notify(report func(string), name string) {
+	if report != nil {
+		report(name)
+	}
 }
 
 func shortName(name string) string {

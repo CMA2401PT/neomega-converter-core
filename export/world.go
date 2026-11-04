@@ -39,12 +39,19 @@ type StateCount struct {
 	Count uint64
 }
 
+// ItemCount 是转不出的物品按名称合并后的计数。
+type ItemCount struct {
+	Item  string
+	Count uint64
+}
+
 type Report struct {
 	// 计数以实际写出为准；诊断同时保留逐类合计和最常见的十个未知状态。
 	Chunks                   map[int32]uint64
 	FailedChunks             []FailedChunk
 	Diagnostics              map[converter.DiagnosticKind]uint64
 	UnknownStates            []StateCount
+	UnknownItems             []ItemCount
 	UnsupportedBlockEntities map[string]uint64
 	DroppedSections          map[int32]uint64
 	Skipped                  uint64
@@ -93,7 +100,21 @@ func ConvertWorld(source *cellerbedrock.World, target *java.World, options Conve
 		version = DataVersion
 	}
 	unknown := make(map[ir.IRBlock]uint64)
+	unknownItems := make(map[string]uint64)
 	defer func() {
+		for item, count := range unknownItems {
+			report.UnknownItems = append(report.UnknownItems, ItemCount{Item: item, Count: count})
+		}
+		sort.Slice(report.UnknownItems, func(i, j int) bool {
+			a, b := report.UnknownItems[i], report.UnknownItems[j]
+			if a.Count != b.Count {
+				return a.Count > b.Count
+			}
+			return a.Item < b.Item
+		})
+		if len(report.UnknownItems) > 10 {
+			report.UnknownItems = report.UnknownItems[:10]
+		}
 		for state, count := range unknown {
 			report.UnknownStates = append(report.UnknownStates, StateCount{State: state, Count: count})
 		}
@@ -117,9 +138,11 @@ func ConvertWorld(source *cellerbedrock.World, target *java.World, options Conve
 			report.Skipped++
 			return nil
 		}
-		rawActors, err := source.ReadChunkActors(sourceChunk.Dimension, sourceChunk.Pos)
-		if err != nil {
-			return err
+		rawActors, actorErr := source.ReadChunkActors(sourceChunk.Dimension, sourceChunk.Pos)
+		if actorErr != nil {
+			// 实体记录坏了也要保住地形：转换该柱，问题记进诊断。
+			actorErr = fmt.Errorf("actors: %w", actorErr)
+			rawActors = nil
 		}
 		extra := make([]nbt.Compound, 0, len(rawActors))
 		for _, document := range rawActors {
@@ -137,6 +160,9 @@ func ConvertWorld(source *cellerbedrock.World, target *java.World, options Conve
 			}
 			return nil
 		}
+		if actorErr != nil {
+			chunk.Diagnostics = append(chunk.Diagnostics, converter.Diagnostic{Kind: converter.NBTError, Err: actorErr})
+		}
 		for _, diagnostic := range chunk.Diagnostics {
 			count := diagnostic.Count
 			if count == 0 {
@@ -148,6 +174,8 @@ func ConvertWorld(source *cellerbedrock.World, target *java.World, options Conve
 				unknown[diagnostic.State] += count
 			case converter.UnsupportedBlockEntity:
 				report.UnsupportedBlockEntities[diagnostic.BlockEntityID] += count
+			case converter.UnknownItem:
+				unknownItems[diagnostic.ItemID] += count
 			}
 		}
 		low, high := sectionBounds(chunk.Dimension)
@@ -158,7 +186,15 @@ func ConvertWorld(source *cellerbedrock.World, target *java.World, options Conve
 		}
 		terrain, err := ToJavaChunk(chunk, version)
 		if err != nil {
-			return err
+			report.FailedChunks = append(report.FailedChunks, FailedChunk{
+				Dimension: sourceChunk.Dimension,
+				Pos:       sourceChunk.Pos,
+				Err:       err,
+			})
+			if options.Strict {
+				return fmt.Errorf("dimension %d chunk %v: %w", sourceChunk.Dimension, sourceChunk.Pos, err)
+			}
+			return nil
 		}
 		if err = target.WriteChunk(dim, terrain); err != nil {
 			return err

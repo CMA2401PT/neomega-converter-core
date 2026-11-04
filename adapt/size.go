@@ -37,7 +37,7 @@ func chunkBytes(chunk *converter.ConvertedChunk) int64 {
 	}
 	size += int64(cap(chunk.Diagnostics)) * 128
 	for _, diagnostic := range chunk.Diagnostics {
-		size += int64(len(diagnostic.State) + len(diagnostic.Kind) + len(diagnostic.BlockEntityID))
+		size += int64(len(diagnostic.State) + len(diagnostic.Kind) + len(diagnostic.BlockEntityID) + len(diagnostic.EntityID) + len(diagnostic.ItemID))
 		if diagnostic.Err != nil {
 			size += int64(len(diagnostic.Err.Error()))
 		}

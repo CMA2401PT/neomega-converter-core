@@ -13,7 +13,8 @@ import (
 )
 
 // Items 转换 Bedrock 的 Items 列表，保留原槽位并跳过转不出的条目。
-func Items(source nbt.Compound) ([]nbt.Compound, error) {
+// report 可以为 nil，转不出的物品名通过它上报。
+func Items(source nbt.Compound, report func(name string)) ([]nbt.Compound, error) {
 	raw, exists := source["Items"]
 	if !exists {
 		return []nbt.Compound{}, nil
@@ -24,7 +25,7 @@ func Items(source nbt.Compound) ([]nbt.Compound, error) {
 	}
 	out := make([]nbt.Compound, 0, len(list))
 	for _, item := range list {
-		if converted := items.ConvertItem(item); converted != nil {
+		if converted := items.ConvertItemReported(item, report); converted != nil {
 			out = append(out, converted)
 		}
 	}
@@ -33,7 +34,7 @@ func Items(source nbt.Compound) ([]nbt.Compound, error) {
 
 // Common 组装 Java 容器方块实体的公共字段。javaID 是目标 Java 方块实体 id。
 func Common(input blockentities.Input, javaID string) (nbt.Compound, error) {
-	list, err := Items(input.Source)
+	list, err := Items(input.Source, input.ReportItem)
 	if err != nil {
 		return nil, err
 	}

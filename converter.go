@@ -1,6 +1,8 @@
 package converter
 
 import (
+	"fmt"
+
 	"celler"
 	"celler/java"
 	"celler/layer_storage"
@@ -35,6 +37,7 @@ const (
 	RuleError              DiagnosticKind = "rule_error"
 	UnsupportedBlockEntity DiagnosticKind = "unsupported_block_entity"
 	UnknownEntity          DiagnosticKind = "unknown_entity"
+	UnknownItem            DiagnosticKind = "unknown_item"
 )
 
 type Diagnostic struct {
@@ -46,4 +49,22 @@ type Diagnostic struct {
 	Err           error
 	BlockEntityID string
 	EntityID      string
+	ItemID        string
+}
+
+// ReportUnknownItem 合并同一 Bedrock 物品名的失败计数。
+// 区块转换是单 goroutine 的；结果对象不跨任务共享。
+func (c *ConvertedChunk) ReportUnknownItem(name string) {
+	for i := range c.Diagnostics {
+		if c.Diagnostics[i].Kind == UnknownItem && c.Diagnostics[i].ItemID == name {
+			c.Diagnostics[i].Count++
+			return
+		}
+	}
+	c.Diagnostics = append(c.Diagnostics, Diagnostic{
+		Kind:   UnknownItem,
+		ItemID: name,
+		Count:  1,
+		Err:    fmt.Errorf("unknown or invalid Bedrock item: %q", name),
+	})
 }

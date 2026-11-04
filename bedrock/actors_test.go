@@ -53,3 +53,23 @@ func TestConvertChunkWithActors(t *testing.T) {
 		t.Fatalf("entities: %#v", got.Entities)
 	}
 }
+
+func TestUnknownItemInActor(t *testing.T) {
+	source := biomeChunk(t, 0)
+	got, err := ConvertChunkWithActors(source, []nbt.Compound{{
+		"identifier": "minecraft:item", "Pos": []float32{0, 1, 0},
+		"Item": nbt.Compound{"Name": "minecraft:not_a_real_item", "Count": int8(1)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, diagnostic := range got.Diagnostics {
+		if diagnostic.Kind == converter.UnknownItem && diagnostic.ItemID == "minecraft:not_a_real_item" && diagnostic.Count == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("diagnostics: %+v", got.Diagnostics)
+	}
+}

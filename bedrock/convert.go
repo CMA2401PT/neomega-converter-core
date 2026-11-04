@@ -175,7 +175,7 @@ func convertActors(result *converter.ConvertedChunk, list []nbt.Compound) {
 	// 未知标识按名称合并计数；已知但跳过或数据不完整的实体不算错误。
 	unknown := make(map[string]int)
 	for _, source := range list {
-		entity, known := actors.Convert(source)
+		entity, known := actors.ConvertWithReport(source, result.ReportUnknownItem)
 		if entity != nil {
 			result.Entities = append(result.Entities, entity)
 			continue
@@ -332,6 +332,7 @@ func convertEntities(
 			WorldPos:    world,
 			SourceState: aligned,
 			Dimension:   result.Dimension,
+			ReportItem:  result.ReportUnknownItem,
 		})
 		if err != nil {
 			result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{

@@ -26,7 +26,7 @@ func Convert(input blockentities.Input) (blockentities.Result, error) {
 	for i := 1; i <= 4; i++ {
 		suffix := strconv.Itoa(i)
 		if raw, ok := input.Source["Item"+suffix].(nbt.Compound); ok {
-			if converted := items.ConvertItem(raw); converted != nil {
+			if converted := items.ConvertItemReported(raw, input.ReportItem); converted != nil {
 				converted["Slot"] = int8(i - 1)
 				list = append(list, converted)
 			}

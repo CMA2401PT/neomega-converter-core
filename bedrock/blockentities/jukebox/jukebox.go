@@ -18,7 +18,7 @@ func Convert(input blockentities.Input) (blockentities.Result, error) {
 	state := ir.IRBlock(input.Base.NameWithNameSpace() + " " + string(states)).Tidy()
 	entity := nbt.Compound{"id": "minecraft:jukebox"}
 	if hasRecord {
-		if converted := items.ConvertItem(raw); converted != nil {
+		if converted := items.ConvertItemReported(raw, input.ReportItem); converted != nil {
 			delete(converted, "Slot")
 			entity["RecordItem"] = converted
 		}

@@ -46,6 +46,12 @@ var boatWoods = []string{"oak", "spruce", "birch", "jungle", "acacia", "dark_oak
 // Convert 返回 Java 实体。known 表示这是否是已知的 Bedrock 实体：
 // 已知但被跳过或数据不完整时返回 nil, true；未知标识返回 nil, false。
 func Convert(source nbt.Compound) (entity nbt.Compound, known bool) {
+	return ConvertWithReport(source, nil)
+}
+
+// ConvertWithReport 与 Convert 相同，物品转不出时把物品名交给 report。
+// report 可以为 nil。
+func ConvertWithReport(source nbt.Compound, report func(item string)) (entity nbt.Compound, known bool) {
 	identifier, _ := source["identifier"].(string)
 	short := strings.TrimPrefix(identifier, "minecraft:")
 	if short == "" {
@@ -115,14 +121,14 @@ func Convert(source nbt.Compound) (entity nbt.Compound, known bool) {
 	if health, ok := healthOf(source); ok {
 		entity["Health"] = health
 	}
-	if equipment, ok := equipmentOf(source); ok {
+	if equipment, ok := equipmentOf(source, report); ok {
 		entity["equipment"] = equipment
 	}
 
 	switch short {
 	case "item":
 		if raw, ok := source["Item"].(nbt.Compound); ok {
-			if converted := itemStack(raw); converted != nil {
+			if converted := itemStack(raw, report); converted != nil {
 				entity["Item"] = converted
 			}
 		}
@@ -176,8 +182,8 @@ func blockState(source nbt.Compound) (nbt.Compound, bool) {
 	return state, true
 }
 
-func itemStack(source nbt.Compound) nbt.Compound {
-	converted := items.ConvertItem(source)
+func itemStack(source nbt.Compound, report func(item string)) nbt.Compound {
+	converted := items.ConvertItemReported(source, report)
 	if converted == nil {
 		return nil
 	}
@@ -190,7 +196,7 @@ type equipmentPair struct {
 	value any
 }
 
-func equipmentOf(source nbt.Compound) (nbt.Compound, bool) {
+func equipmentOf(source nbt.Compound, report func(item string)) (nbt.Compound, bool) {
 	pairs := []equipmentPair{
 		{"mainhand", source["Mainhand"]},
 		{"offhand", source["Offhand"]},
@@ -209,7 +215,7 @@ func equipmentOf(source nbt.Compound) (nbt.Compound, bool) {
 		if !ok {
 			continue
 		}
-		if converted := itemStack(item); converted != nil {
+		if converted := itemStack(item, report); converted != nil {
 			equipment[pair.java] = converted
 		}
 	}
