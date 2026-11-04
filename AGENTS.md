@@ -24,7 +24,7 @@
 | 邻居的 Java 状态 | 栅栏、楼梯、snowy、树叶距离 | `neomega-viewer-core/fixer/java-postprocess` |
 | 生物群系 | 数字 id 到 Java 名、Data3D/2D | `bedrock.ConvertChunk` 的群系合并 |
 | 方块实体要变成 Java 实体 | 展示框 | `bedrock/blockentities/<子包>`，在 `Result.Entity` 里返回 |
-| 普通实体 | 生物、盔甲架 | `bedrock/actors` |
+| 普通实体 | 生物、盔甲架、掉落物 | `bedrock/actors` |
 | 世界元数据、存档写出 | `level.dat`、region、PostProcessing 名单 | `export/` |
 
 方块实体规则通过 `blockentities.Input` 读取基础状态和源 NBT。
@@ -37,8 +37,6 @@
 附魔、耐久、名称、lore、颜色和容器内容等写入 Java 物品组件。
 无法转换的条目整体跳过，所有条目都跳过时仍保留空箱实体。
 范围与文字近似见 [items 包说明](bedrock/items/doc.go)。
-
-`bedrock/actors` 只预留职责。
 
 ## 映射数据
 

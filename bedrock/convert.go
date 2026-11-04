@@ -10,6 +10,7 @@ import (
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	"neomega-converter-core"
+	"neomega-converter-core/bedrock/actors"
 	"neomega-converter-core/bedrock/blockentities"
 	"neomega-converter-core/bedrock/blockentities/banner"
 	"neomega-converter-core/bedrock/blockentities/beacon"
@@ -109,6 +110,16 @@ func ConvertSection(
 }
 
 func ConvertChunk(src *cellerbedrock.Chunk) (*converter.ConvertedChunk, error) {
+	return convertChunk(src, nil)
+}
+
+// ConvertChunkWithActors 追加调用方从 digp/actorprefix 取得的实体。
+// 0x32 记录仍由 ConvertChunk 自己读取。
+func ConvertChunkWithActors(src *cellerbedrock.Chunk, extra []nbt.Compound) (*converter.ConvertedChunk, error) {
+	return convertChunk(src, extra)
+}
+
+func convertChunk(src *cellerbedrock.Chunk, extra []nbt.Compound) (*converter.ConvertedChunk, error) {
 	// 解码完整成功后才进入转换，任一 section 损坏仍使整根柱子失败。
 	var sections []*cellerbedrock.Section
 	for _, y := range src.SectionYs() {
@@ -135,7 +146,56 @@ func ConvertChunk(src *cellerbedrock.Chunk) (*converter.ConvertedChunk, error) {
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{Kind: converter.NBTError, Err: err})
 	}
+	list, actorErr := chunkActors(src)
+	if actorErr != nil {
+		result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{Kind: converter.NBTError, Err: actorErr})
+	}
+	convertActors(result, append(list, extra...))
 	return result, nil
+}
+
+// chunkActors 读取 0x32 记录；缺失表示这一柱没有旧式实体记录。
+func chunkActors(src *cellerbedrock.Chunk) ([]nbt.Compound, error) {
+	data, ok := src.Records[string([]byte{cellerbedrock.TagEntities})]
+	if !ok {
+		return nil, nil
+	}
+	documents, err := nbt.DecodeDocuments(data, nbt.EncodingLittleEndian)
+	if err != nil {
+		return nil, fmt.Errorf("entity record: %w", err)
+	}
+	list := make([]nbt.Compound, 0, len(documents))
+	for _, document := range documents {
+		list = append(list, document.Value)
+	}
+	return list, nil
+}
+
+func convertActors(result *converter.ConvertedChunk, list []nbt.Compound) {
+	// 未知标识按名称合并计数；已知但跳过或数据不完整的实体不算错误。
+	unknown := make(map[string]int)
+	for _, source := range list {
+		entity, known := actors.Convert(source)
+		if entity != nil {
+			result.Entities = append(result.Entities, entity)
+			continue
+		}
+		if known {
+			continue
+		}
+		id, _ := source["identifier"].(string)
+		index, exists := unknown[id]
+		if !exists {
+			index = len(result.Diagnostics)
+			unknown[id] = index
+			result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{
+				Kind:     converter.UnknownEntity,
+				EntityID: id,
+				Err:      fmt.Errorf("unknown Bedrock entity: %q", id),
+			})
+		}
+		result.Diagnostics[index].Count++
+	}
 }
 
 func convertSections(

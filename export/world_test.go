@@ -204,3 +204,35 @@ func TestFinalizedState(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertWorldActors(t *testing.T) {
+	source, target := openBedrock(t), openJava(t)
+	pos := celler.ChunkPos{}
+	if err := source.WriteChunk(sourceChunk(t, pos, 0, 0), nil); err != nil {
+		t.Fatal(err)
+	}
+	actorKey := []byte{1, 2, 3, 4, 5, 6, 7, 8}
+	value, err := nbt.EncodeDocument(nbt.Document{Value: nbt.Compound{
+		"identifier": "minecraft:zombie", "Pos": []float32{0, 65, 0},
+	}}, nbt.EncodingLittleEndian)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = source.DB.Put(append([]byte("actorprefix"), actorKey...), value, nil); err != nil {
+		t.Fatal(err)
+	}
+	digp := append([]byte("digp"), cellerbedrock.ChunkPrefix(pos, 0)...)
+	if err = source.DB.Put(digp, actorKey, nil); err != nil {
+		t.Fatal(err)
+	}
+	report, err := ConvertWorld(source, target, ConvertOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Entities != 1 {
+		t.Fatalf("report=%+v", report)
+	}
+	if _, err = target.ReadRaw(java.Overworld, java.Entities, pos); err != nil {
+		t.Fatalf("entity record: %v", err)
+	}
+}

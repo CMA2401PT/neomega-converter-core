@@ -34,6 +34,7 @@ const (
 	NBTError               DiagnosticKind = "nbt_error"
 	RuleError              DiagnosticKind = "rule_error"
 	UnsupportedBlockEntity DiagnosticKind = "unsupported_block_entity"
+	UnknownEntity          DiagnosticKind = "unknown_entity"
 )
 
 type Diagnostic struct {
@@ -44,4 +45,5 @@ type Diagnostic struct {
 	Count         uint64
 	Err           error
 	BlockEntityID string
+	EntityID      string
 }

@@ -19,6 +19,7 @@ items.ConvertItem(item)                Bedrock 物品 compound → Java 物品 c
 bedrock.ConvertBlockEntity(id, Input)  单格方块实体 → Java 状态 + 可选方块实体 / 实体, ok, err
 bedrock.ConvertSection(pos, dim, ...)  单个 Bedrock section + 方块实体 → ConvertedChunk
 bedrock.ConvertChunk(chunk)            Bedrock 整根柱子 → ConvertedChunk, err
+bedrock.ConvertChunkWithActors(chunk, actors)  同上并追加 digp 实体 → ConvertedChunk, err
 adapt.NewConverted(read, opts)        按坐标读取 Bedrock 柱子 → 缓存转换结果 的来源
 export.ToJavaChunk / ToJavaEntities    ConvertedChunk → Java 区块 / Java 实体记录
 export.ConvertLevel(level)             Bedrock level.dat → Java level.dat
@@ -150,13 +151,15 @@ ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *ConvertedCh
                    或规则返回 err（有坐标和基础状态）；该实体的效果丢弃，保留基础状态
     unsupported_block_entity  没有规则的方块实体，按 BlockEntityID 合并，Count 为条数；只保留基础状态
       例如蜂巢、拼图方块、结构方块、试炼刷怪笼、宝库的数据
+    unknown_entity  没有 Java 对应的实体标识，按 EntityID 合并，Count 为条数
   降级（没有诊断）：
     单个方块状态的所有降级，包括 179 个映射成空气的方块名
     基础状态转不出的格子不执行实体规则（已计入 unknown_block）
     第 1 层只识别水；waterlogged 会附加到任意基础状态上，包括 Java 不能含水的方块和空气
       waterlogged 是本仓库 IR 的扩展属性，不在 Java 属性表里，写出存档时由写出方决定怎么处理
     生物群系按 Data3D 优先、2D 回退映射，未知编号和缺失 section 用 plains
-    普通实体（生物、盔甲架等）不读取，Entities 里只有展示框
+    普通实体读取 0x32 记录和调用方给的 digp 实体，转换通用字段与掉落物/船等特例；
+    村民交易、乘骑、宠物主人、盔甲架姿势等类型专属数据不保留
 ```
 
 ## 导出 Java 存档
@@ -225,9 +228,24 @@ section 解码失败通过 `error` 返回。
 - `nbt_error`：实体列表无法解码，区块的方块状态仍可输出。
 - `rule_error`：单条实体的字段或规则出错，保留基础状态。
 - `unsupported_block_entity`：方块实体没有对应规则，按 id 合并计数，只保留基础状态。
+- `unknown_entity`：实体标识没有 Java 对应，按 id 合并计数并跳过。
 
 没有群系记录的 section 全部写 `minecraft:plains`；源数据优先用 Data3D，其次 Data2D，
 未知编号也回退 plains，避免写出的 Java section 缺少必需的 `biomes` 字段。
+
+## 普通实体
+
+`bedrock.ConvertChunk` 读取柱子自带的 0x32 记录；`bedrock.ConvertChunkWithActors` 再追加
+调用方从 `digp`/`actorprefix` 读到的实体（`export.ConvertWorld` 已经这样做）。
+两类记录都交给 `bedrock/actors`，它只转换两版含义一致的字段：
+
+- `id`：Bedrock 标识经一张小的改名表转成 Java id（僵尸猪灵、卫道士、村民变种等）；
+- `Pos`、`Rotation`、`Motion`、`UUID`、`CustomName`、`Tags`、`Fire`、`Air`；
+- `Persistent`、`IsBaby`、`Health` 和 `Armor`/`Mainhand`/`Offhand` 装备；
+- 掉落物（`item`）和船（`boat`、`chest_boat` 按 `Variant` 决定木种与筏）。
+
+瞬时实体（箭、火球、经验瓶等）直接跳过；未知标识记 `unknown_entity`。
+村民交易、乘骑、宠物主人、盔甲架姿势、生物群系变种等类型专属数据不转换。
 
 ## 按坐标读取与缓存
 

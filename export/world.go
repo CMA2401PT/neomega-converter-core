@@ -117,7 +117,15 @@ func ConvertWorld(source *cellerbedrock.World, target *java.World, options Conve
 			report.Skipped++
 			return nil
 		}
-		chunk, err := bedrock.ConvertChunk(sourceChunk)
+		rawActors, err := source.ReadChunkActors(sourceChunk.Dimension, sourceChunk.Pos)
+		if err != nil {
+			return err
+		}
+		extra := make([]nbt.Compound, 0, len(rawActors))
+		for _, document := range rawActors {
+			extra = append(extra, document.Value)
+		}
+		chunk, err := bedrock.ConvertChunkWithActors(sourceChunk, extra)
 		if err != nil {
 			report.FailedChunks = append(report.FailedChunks, FailedChunk{
 				Dimension: sourceChunk.Dimension,
