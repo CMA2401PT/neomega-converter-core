@@ -20,7 +20,12 @@ func TestConvertGeneric(t *testing.T) {
 		"Persistent": int8(1),
 		"Fire":       int16(20),
 		"Attributes": []nbt.Compound{{"Name": "minecraft:health", "Current": float32(12)}},
-		"Armor":      nbt.Compound{"Head": nbt.Compound{"Name": "minecraft:oak_log", "Count": int8(1), "Slot": int8(0)}},
+		"Armor": []nbt.Compound{
+			{"Name": "minecraft:oak_log", "Count": int8(1)},
+			{"Count": int8(0), "Name": ""},
+			{"Count": int8(0), "Name": ""},
+			{"Count": int8(0), "Name": ""},
+		},
 	}
 	entity, known := Convert(source)
 	if !known || entity == nil {

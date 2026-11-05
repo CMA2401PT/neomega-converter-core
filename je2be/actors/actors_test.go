@@ -18,7 +18,8 @@ func TestConvertZombie(t *testing.T) {
 		"Age":                 int32(-24000),
 		"Health":              float32(12),
 		"equipment": nbt.Compound{
-			"head": nbt.Compound{"id": "minecraft:oak_log", "count": int32(1)},
+			"head":     nbt.Compound{"id": "minecraft:oak_log", "count": int32(1)},
+			"mainhand": nbt.Compound{"id": "minecraft:diamond_sword", "count": int32(1)},
 		},
 	}
 	entity, id, known := Convert(source, nil)
@@ -38,10 +39,13 @@ func TestConvertZombie(t *testing.T) {
 	if len(attributes) != 1 || attributes[0]["Name"] != "minecraft:health" || attributes[0]["Current"] != float32(12) {
 		t.Fatalf("attributes: %#v", entity["Attributes"])
 	}
-	equipment, _ := entity["equipment"].(nbt.Compound)
-	armor, _ := equipment["Armor"].(nbt.Compound)
-	if head, _ := armor["Head"].(nbt.Compound); head["Name"] != "minecraft:oak_log" {
-		t.Fatalf("equipment: %#v", equipment)
+	armor, _ := entity["Armor"].([]nbt.Compound)
+	if len(armor) != 4 || armor[0]["Name"] != "minecraft:oak_log" || armor[1]["Name"] != "" {
+		t.Fatalf("armor: %#v", entity["Armor"])
+	}
+	mainhand, _ := entity["Mainhand"].([]nbt.Compound)
+	if len(mainhand) != 1 || mainhand[0]["Name"] != "minecraft:diamond_sword" {
+		t.Fatalf("mainhand: %#v", entity["Mainhand"])
 	}
 	if id != [8]byte{7, 0, 0, 0, 42, 0, 0, 0} {
 		t.Fatalf("actor id: %x", id)

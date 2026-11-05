@@ -16,7 +16,8 @@ Java 实体存在 `entities/` region；Bedrock 用 `digp` 索引和 `actorprefix
 | `PersistenceRequired` | `Persistent` |
 | `Age = -24000` | `IsBaby` |
 | `Health` | `Attributes[minecraft:health]` |
-| `equipment` | `Armor{Head…}`、`Mainhand`、`Offhand` |
+| `equipment` | `Armor`（四件 list）、`Mainhand`/`Offhand`（单元素 list） |
+| `ArmorItems`/`HandItems`（旧版） | 归一化成同样的 list，顺序 feet、legs、chest、head / main、off |
 | `Item`、`Age` | 掉落物的 `Item`、`Age` |
 | `oak_boat` 等 | `boat`/`chest_boat` + `Variant` |
 

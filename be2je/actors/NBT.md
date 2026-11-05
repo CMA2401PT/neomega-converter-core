@@ -15,7 +15,8 @@ Bedrock 的实体存在 `digp`（每柱 id 列表）和 `actorprefix<id>`（实�
 | `Persistent`、`IsBaby`、`Fire`、`Air` | Byte/Short | 状态 |
 | `FallDistance` | Float | 下落距离 |
 | `Attributes` | List<Compound> | 属性，读取 `minecraft:health` |
-| `Armor`、`Mainhand`、`Offhand` | Compound | 装备 |
+| `Armor` | List<Compound> | 四件装备，顺序 head、chest、legs、feet，空槽位是空物品 |
+| `Mainhand`、`Offhand` | List<Compound> | 单元素列表 |
 | `Item`、`Variant`、`FallingBlock` | Compound/Int | 掉落物、船木种、下落方块 |
 
 ## 转换

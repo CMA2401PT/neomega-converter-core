@@ -88,7 +88,9 @@ func Convert(source nbt.Compound, report func(item string)) (nbt.Compound, [8]by
 		entity["Attributes"] = []nbt.Compound{{"Name": "minecraft:health", "Current": float32(health)}}
 	}
 	if equipment, ok := equipmentOf(source, report); ok {
-		entity["equipment"] = equipment
+		for key, value := range equipment {
+			entity[key] = value
+		}
 	}
 
 	switch {
@@ -124,28 +126,36 @@ func Convert(source nbt.Compound, report func(item string)) (nbt.Compound, [8]by
 	return entity, actorID(source, short, pos), true
 }
 
-type equipmentPair struct {
-	java  string
-	value any
-}
-
 func equipmentOf(source nbt.Compound, report func(item string)) (nbt.Compound, bool) {
-	equipment, ok := source["equipment"].(nbt.Compound)
-	if !ok {
+	equipment := javaEquipment(source)
+	if equipment == nil {
 		return nil, false
 	}
-	pairs := []equipmentPair{
-		{"head", equipment["head"]},
-		{"chest", equipment["chest"]},
-		{"legs", equipment["legs"]},
-		{"feet", equipment["feet"]},
-		{"mainhand", equipment["mainhand"]},
-		{"offhand", equipment["offhand"]},
-	}
-	armor := nbt.Compound{}
 	out := nbt.Compound{}
-	for _, pair := range pairs {
-		item, ok := pair.value.(nbt.Compound)
+	// Bedrock 的 Armor 固定是四件物品的 list，顺序 head、chest、legs、feet；
+	// 没有装备的槽位也要放空物品，不能省略。
+	armor := make([]nbt.Compound, 0, 4)
+	hasArmor := false
+	for _, slot := range []string{"head", "chest", "legs", "feet"} {
+		item, ok := equipment[slot].(nbt.Compound)
+		if !ok {
+			armor = append(armor, emptyEquipmentItem())
+			continue
+		}
+		converted := items.ConvertItem(item, report)
+		if converted == nil {
+			armor = append(armor, emptyEquipmentItem())
+			continue
+		}
+		delete(converted, "Slot")
+		armor = append(armor, converted)
+		hasArmor = true
+	}
+	if hasArmor {
+		out["Armor"] = armor
+	}
+	for _, slot := range []string{"mainhand", "offhand"} {
+		item, ok := equipment[slot].(nbt.Compound)
 		if !ok {
 			continue
 		}
@@ -154,19 +164,36 @@ func equipmentOf(source nbt.Compound, report func(item string)) (nbt.Compound, b
 			continue
 		}
 		delete(converted, "Slot")
-		switch pair.java {
-		case "head", "chest", "legs", "feet":
-			key := strings.ToUpper(pair.java[:1]) + pair.java[1:]
-			armor[key] = converted
-		default:
-			key := strings.ToUpper(pair.java[:1]) + pair.java[1:]
-			out[key] = converted
+		if slot == "mainhand" {
+			out["Mainhand"] = []nbt.Compound{converted}
+		} else {
+			out["Offhand"] = []nbt.Compound{converted}
 		}
 	}
-	if len(armor) > 0 {
-		out["Armor"] = armor
-	}
 	return out, len(out) > 0
+}
+
+// javaEquipment 统一 1.21.5+ 的 equipment 和旧版的 ArmorItems/HandItems。
+// 返回 nil 表示源实体没有任何装备字段。
+func javaEquipment(source nbt.Compound) nbt.Compound {
+	if equipment, ok := source["equipment"].(nbt.Compound); ok {
+		return equipment
+	}
+	out := nbt.Compound{}
+	if list, ok := nbt.Compounds(source["ArmorItems"]); ok && len(list) == 4 {
+		out["feet"], out["legs"], out["chest"], out["head"] = list[0], list[1], list[2], list[3]
+	}
+	if list, ok := nbt.Compounds(source["HandItems"]); ok && len(list) == 2 {
+		out["mainhand"], out["offhand"] = list[0], list[1]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func emptyEquipmentItem() nbt.Compound {
+	return nbt.Compound{"Count": int8(0), "Damage": int16(0), "Name": "", "WasPickedUp": int8(0)}
 }
 
 func boat(id string) (string, int32, bool) {

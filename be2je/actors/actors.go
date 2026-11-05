@@ -168,11 +168,21 @@ type equipmentPair struct {
 }
 
 func equipmentOf(source nbt.Compound, report func(item string)) (nbt.Compound, bool) {
+	mainhand, _ := firstItem(source["Mainhand"])
+	offhand, _ := firstItem(source["Offhand"])
 	pairs := []equipmentPair{
-		{"mainhand", source["Mainhand"]},
-		{"offhand", source["Offhand"]},
+		{"mainhand", mainhand},
+		{"offhand", offhand},
 	}
-	if armor, ok := source["Armor"].(nbt.Compound); ok {
+	// Bedrock 的 Armor 是 head、chest、legs、feet 四件物品的 list；旧数据可能写成 compound。
+	if armor, ok := nbt.Compounds(source["Armor"]); ok && len(armor) == 4 {
+		pairs = append(pairs,
+			equipmentPair{"head", armor[0]},
+			equipmentPair{"chest", armor[1]},
+			equipmentPair{"legs", armor[2]},
+			equipmentPair{"feet", armor[3]},
+		)
+	} else if armor, ok := source["Armor"].(nbt.Compound); ok {
 		pairs = append(pairs,
 			equipmentPair{"head", armor["Head"]},
 			equipmentPair{"chest", armor["Chest"]},
@@ -186,11 +196,24 @@ func equipmentOf(source nbt.Compound, report func(item string)) (nbt.Compound, b
 		if !ok {
 			continue
 		}
+		if name, _ := item["Name"].(string); name == "" {
+			continue
+		}
 		if converted := itemStack(item, report); converted != nil {
 			equipment[pair.java] = converted
 		}
 	}
 	return equipment, len(equipment) > 0
+}
+
+func firstItem(value any) (nbt.Compound, bool) {
+	if item, ok := value.(nbt.Compound); ok {
+		return item, true
+	}
+	if list, ok := nbt.Compounds(value); ok && len(list) > 0 {
+		return list[0], true
+	}
+	return nil, false
 }
 
 func healthOf(source nbt.Compound) (float32, bool) {
