@@ -158,3 +158,47 @@ func TestConvertChunkWithActors(t *testing.T) {
 		t.Fatalf("diagnostics: %+v", got.Diagnostics)
 	}
 }
+
+func TestConvertChunkItemFrame(t *testing.T) {
+	chunk := cellerjava.NewChunk(celler.ChunkPos{}, 4189)
+	blocks := layer_storage.MakePaletteStorage(ir.IRBlock("minecraft:air []"))
+	if err := chunk.SetSection(&cellerjava.Section{Y: 0, Blocks: blocks}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ConvertChunkWithActors(celler.ChunkPos{}, 0, chunk, []nbt.Compound{
+		{
+			"id": "minecraft:item_frame", "block_pos": nbt.Array([]int32{2, 3, 4}), "Facing": int32(2),
+			"Item":         nbt.Compound{"id": "minecraft:filled_map", "count": int32(1)},
+			"ItemRotation": int32(1), "ItemDropChance": float32(0.5),
+		},
+		{
+			"id": "minecraft:glow_item_frame", "block_pos": nbt.Array([]int32{3, 3, 4}), "Facing": int32(5),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Actors) != 0 {
+		t.Fatalf("frames became actors: %#v", got.Actors)
+	}
+	section := got.Sections[0]
+	frame := section.Layers[0].Get(layer_storage.At(2, 3, 4))
+	if frame.State.NameWithNameSpace() != "minecraft:frame" || frame.State.States().GetDefault("item_frame_map_bit", 0) != int8(1) {
+		t.Fatalf("frame: %s", frame.State)
+	}
+	glow := section.Layers[0].Get(layer_storage.At(3, 3, 4))
+	if glow.State.NameWithNameSpace() != "minecraft:glow_frame" || glow.State.States().GetDefault("facing_direction", 0) != int32(5) {
+		t.Fatalf("glow frame: %s", glow.State)
+	}
+	if len(got.BlockEntities) != 2 {
+		t.Fatalf("block entities: %#v", got.BlockEntities)
+	}
+	entity := got.BlockEntities[0]
+	if entity["id"] != "ItemFrame" || entity["ItemRotation"] != float32(45) || entity["ItemDropChance"] != float32(0.5) {
+		t.Fatalf("entity: %#v", entity)
+	}
+	item, _ := entity["Item"].(nbt.Compound)
+	if item["Name"] != "minecraft:filled_map" {
+		t.Fatalf("item: %#v", item)
+	}
+}

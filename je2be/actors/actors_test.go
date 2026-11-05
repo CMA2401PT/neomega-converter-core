@@ -35,9 +35,15 @@ func TestConvertZombie(t *testing.T) {
 	if entity["CustomName"] != "§a僵尸" || entity["Persistent"] != int8(1) || entity["IsBaby"] != int8(1) {
 		t.Fatalf("fields: %#v", entity)
 	}
-	attributes, _ := entity["Attributes"].([]nbt.Compound)
-	if len(attributes) != 1 || attributes[0]["Name"] != "minecraft:health" || attributes[0]["Current"] != float32(12) {
-		t.Fatalf("attributes: %#v", entity["Attributes"])
+	definitions, _ := entity["definitions"].([]string)
+	if len(definitions) != 1 || definitions[0] != "+minecraft:zombie" {
+		t.Fatalf("definitions: %#v", entity["definitions"])
+	}
+	if entity["Persistent"] != int8(1) {
+		t.Fatalf("persistent: %#v", entity["Persistent"])
+	}
+	if _, exists := entity["Attributes"]; exists {
+		t.Fatalf("health attributes need an entity definition table: %#v", entity["Attributes"])
 	}
 	armor, _ := entity["Armor"].([]nbt.Compound)
 	if len(armor) != 4 || armor[0]["Name"] != "minecraft:oak_log" || armor[1]["Name"] != "" {
@@ -92,5 +98,67 @@ func TestConvertClassifies(t *testing.T) {
 	}
 	if entity, _, known := Convert(nbt.Compound{"id": "minecraft:not_a_real_entity", "Pos": []float64{0, 0, 0}}, nil); entity != nil || known {
 		t.Fatal("unknown entity accepted")
+	}
+}
+
+func TestConvertPassengers(t *testing.T) {
+	actors, known := ConvertAll(nbt.Compound{
+		"id": "minecraft:chicken", "Pos": []float64{0, 64, 0},
+		"Passengers": []nbt.Compound{{"id": "minecraft:zombie", "Pos": []float64{0, 64.5, 0}}},
+	}, nil)
+	if !known || len(actors) != 2 {
+		t.Fatalf("actors: %d, known=%v", len(actors), known)
+	}
+	if actors[0].NBT["identifier"] != "minecraft:chicken" || actors[1].NBT["identifier"] != "minecraft:zombie" {
+		t.Fatalf("actors: %#v", actors)
+	}
+}
+
+func TestConvertSheepAndHorse(t *testing.T) {
+	sheep, _, _ := Convert(nbt.Compound{
+		"id": "minecraft:sheep", "Pos": []float64{0, 64, 0},
+		"Color": int32(14), "Sheared": int8(1),
+	}, nil)
+	if sheep["Color"] != int8(14) || sheep["Sheared"] != int8(1) {
+		t.Fatalf("sheep: %#v", sheep)
+	}
+	horse, _, _ := Convert(nbt.Compound{
+		"id": "minecraft:horse", "Pos": []float64{0, 64, 0}, "Variant": int32(0x0102),
+	}, nil)
+	if horse["Variant"] != int32(2) || horse["MarkVariant"] != int32(1) {
+		t.Fatalf("horse: %#v", horse)
+	}
+	definitions, _ := horse["definitions"].([]string)
+	if len(definitions) != 3 || definitions[1] != "+minecraft:base_chestnut" || definitions[2] != "+minecraft:markings_white_details" {
+		t.Fatalf("definitions: %#v", definitions)
+	}
+}
+
+func TestConvertPainting(t *testing.T) {
+	painting, _, _ := Convert(nbt.Compound{
+		"id": "minecraft:painting", "Pos": []float64{0, 64, 0},
+		"variant": "minecraft:donkey_kong", "facing": int32(2),
+	}, nil)
+	if painting["Motif"] != "DonkeyKong" || painting["Direction"] != int8(2) {
+		t.Fatalf("painting: %#v", painting)
+	}
+	if blockPos, _ := painting["block_pos"].([]int32); len(blockPos) != 3 {
+		t.Fatalf("block_pos: %#v", painting["block_pos"])
+	}
+}
+
+func TestConvertChestMinecart(t *testing.T) {
+	entity, _, _ := Convert(nbt.Compound{
+		"id": "minecraft:chest_minecart", "Pos": []float64{0, 64, 0},
+		"Items":         []nbt.Compound{{"id": "minecraft:oak_log", "count": int32(2), "Slot": int8(0)}},
+		"LootTable":     "minecraft:chests/abandoned_mineshaft",
+		"LootTableSeed": int64(3),
+	}, nil)
+	if entity["LootTable"] != "loot_tables/chests/abandoned_mineshaft.json" {
+		t.Fatalf("loot: %#v", entity["LootTable"])
+	}
+	items, _ := entity["ChestItems"].([]nbt.Compound)
+	if len(items) != 1 || items[0]["Name"] != "minecraft:oak_log" {
+		t.Fatalf("items: %#v", entity["ChestItems"])
 	}
 }

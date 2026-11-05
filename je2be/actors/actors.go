@@ -18,9 +18,47 @@ import (
 	nbt "neomega-nbt/presets/v1"
 )
 
-// Convert 返回 Bedrock actor NBT 和 digp 键。known 表示实体是否被识别：
-// 已知但跳过时返回 nil, true；未知标识返回 nil, false。
+// Actor 是一条转换后的实体，ID 是 digp 里的 8 字节键。
+type Actor struct {
+	ID  [8]byte
+	NBT nbt.Compound
+}
+
+// IsItemFrame 报告实体是否应转成 Bedrock 的方块 + 方块实体。
+func IsItemFrame(source nbt.Compound) bool {
+	id, _ := source["id"].(string)
+	short := strings.TrimPrefix(id, "minecraft:")
+	return short == "item_frame" || short == "glow_item_frame"
+}
+
+// Convert 返回第一条实体，主要用于只需要单个结果的调用方和测试。
 func Convert(source nbt.Compound, report func(item string)) (nbt.Compound, [8]byte, bool) {
+	actors, known := ConvertAll(source, report)
+	if len(actors) == 0 {
+		return nil, [8]byte{}, known
+	}
+	return actors[0].NBT, actors[0].ID, true
+}
+
+// ConvertAll 转换实体本身和 Passengers；known 表示父实体是否被识别。
+func ConvertAll(source nbt.Compound, report func(item string)) ([]Actor, bool) {
+	entity, id, known := convertOne(source, report)
+	if entity == nil {
+		return nil, known
+	}
+	out := []Actor{{ID: id, NBT: entity}}
+	if passengers, ok := nbt.Compounds(source["Passengers"]); ok {
+		for _, passenger := range passengers {
+			children, childKnown := ConvertAll(passenger, report)
+			if childKnown {
+				out = append(out, children...)
+			}
+		}
+	}
+	return out, true
+}
+
+func convertOne(source nbt.Compound, report func(item string)) (nbt.Compound, [8]byte, bool) {
 	identifier, _ := source["id"].(string)
 	short := strings.TrimPrefix(identifier, "minecraft:")
 	if short == "" {
@@ -31,8 +69,12 @@ func Convert(source nbt.Compound, report func(item string)) (nbt.Compound, [8]by
 	}
 	bedrockID := mapping.BedrockEntityID(short)
 	boatKind, boatVariant, isBoat := boat(short)
+	chestItems := false
 	if isBoat {
 		bedrockID = boatKind
+		chestItems = strings.Contains(short, "_chest_")
+	} else if short == "chest_minecart" || short == "hopper_minecart" {
+		chestItems = true
 	} else if !tables.KnownEntity(bedrockID) {
 		return nil, [8]byte{}, false
 	}
@@ -50,10 +92,11 @@ func Convert(source nbt.Compound, report func(item string)) (nbt.Compound, [8]by
 		motion = []float32{0, 0, 0}
 	}
 	entity := nbt.Compound{
-		"identifier": "minecraft:" + bedrockID,
-		"Pos":        pos,
-		"Rotation":   rotation,
-		"Motion":     motion,
+		"identifier":  "minecraft:" + bedrockID,
+		"definitions": []string{"+minecraft:" + bedrockID},
+		"Pos":         pos,
+		"Rotation":    rotation,
+		"Motion":      motion,
 	}
 	if uuid, ok := uuidInts(source["UUID"]); ok {
 		entity["UniqueID"] = int64(uint64(uint32(uuid[2]))<<32 | uint64(uint32(uuid[3])))
@@ -78,14 +121,21 @@ func Convert(source nbt.Compound, report func(item string)) (nbt.Compound, [8]by
 	if tags, ok := source["Tags"].([]string); ok && len(tags) > 0 {
 		entity["Tags"] = tags
 	}
+	persistent := false
 	if value, ok := source["PersistenceRequired"].(int8); ok && value != 0 {
-		entity["Persistent"] = int8(1)
+		persistent = true
 	}
-	if value, ok := source["Age"].(int32); ok && value == -24000 {
+	if _, named := entity["CustomName"]; named || noDespawn[bedrockID] {
+		persistent = true
+	}
+	entity["Persistent"] = boolByte(persistent)
+	if short != "item" {
+		if value, ok := source["Age"].(int32); ok && value < 0 {
+			entity["IsBaby"] = int8(1)
+		}
+	}
+	if value, ok := source["IsBaby"].(int8); ok && value != 0 {
 		entity["IsBaby"] = int8(1)
-	}
-	if health, ok := real(source["Health"]); ok {
-		entity["Attributes"] = []nbt.Compound{{"Name": "minecraft:health", "Current": float32(health)}}
 	}
 	if equipment, ok := equipmentOf(source, report); ok {
 		for key, value := range equipment {
@@ -97,6 +147,39 @@ func Convert(source nbt.Compound, report func(item string)) (nbt.Compound, [8]by
 	case isBoat:
 		entity["identifier"] = "minecraft:" + boatKind
 		entity["Variant"] = boatVariant
+	case short == "sheep":
+		if color, ok := number(source["Color"]); ok {
+			entity["Color"] = int8(color)
+		}
+		if sheared, ok := source["Sheared"].(int8); ok {
+			entity["Sheared"] = sheared
+		}
+	case short == "horse":
+		if variant, ok := number(source["Variant"]); ok {
+			color := int(variant & 0xFF)
+			marks := int((variant >> 8) & 0xFF)
+			entity["Variant"] = int32(color)
+			entity["MarkVariant"] = int32(marks)
+			definitions, _ := entity["definitions"].([]string)
+			if color < len(horseColors) {
+				definitions = append(definitions, "+minecraft:base_"+horseColors[color])
+			}
+			if marks < len(horseMarks) {
+				definitions = append(definitions, "+minecraft:markings_"+horseMarks[marks])
+			}
+			entity["definitions"] = definitions
+		}
+	case short == "painting":
+		motif, _ := source["variant"].(string)
+		motif = strings.TrimPrefix(motif, "minecraft:")
+		entity["Motif"] = pascalCase(motif)
+		facing := int32(0)
+		if value, ok := number(source["facing"]); ok {
+			facing = int32(value)
+		}
+		entity["Direction"] = int8(facing)
+		width, height := paintingSize(motif)
+		entity["block_pos"] = paintingBlockPos(pos, int(facing), width, height)
 	case short == "item":
 		if raw, ok := source["Item"].(nbt.Compound); ok {
 			if converted := items.ConvertItem(raw, report); converted != nil {
@@ -122,8 +205,36 @@ func Convert(source nbt.Compound, report func(item string)) (nbt.Compound, [8]by
 			}
 		}
 	}
+	if chestItems {
+		if list, ok := chestItemList(source, report); ok {
+			entity["ChestItems"] = list
+		}
+		if loot, ok := source["LootTable"].(string); ok && loot != "" {
+			entity["LootTable"] = mapping.LootTableToBedrock(loot)
+			if seed, ok := number(source["LootTableSeed"]); ok {
+				entity["LootTableSeed"] = int32(seed)
+			}
+		}
+	}
 
 	return entity, actorID(source, short, pos), true
+}
+
+var horseColors = []string{"white", "creamy", "chestnut", "brown", "black", "gray", "darkbrown"}
+var horseMarks = []string{"none", "white_details", "white_fields", "white_dots", "black_dots"}
+
+func chestItemList(source nbt.Compound, report func(string)) ([]nbt.Compound, bool) {
+	list, ok := nbt.Compounds(source["Items"])
+	if !ok {
+		return nil, false
+	}
+	out := make([]nbt.Compound, 0, len(list))
+	for _, item := range list {
+		if converted := items.ConvertItem(item, report); converted != nil {
+			out = append(out, converted)
+		}
+	}
+	return out, true
 }
 
 func equipmentOf(source nbt.Compound, report func(item string)) (nbt.Compound, bool) {
@@ -194,6 +305,21 @@ func javaEquipment(source nbt.Compound) nbt.Compound {
 
 func emptyEquipmentItem() nbt.Compound {
 	return nbt.Compound{"Count": int8(0), "Damage": int16(0), "Name": "", "WasPickedUp": int8(0)}
+}
+
+// Bedrock 里这些实体不会自然消失。
+var noDespawn = map[string]bool{
+	"villager_v2": true, "iron_golem": true, "snow_golem": true, "armor_stand": true,
+	"boat": true, "chest_boat": true, "minecart": true, "chest_minecart": true,
+	"hopper_minecart": true, "tnt_minecart": true, "command_block_minecart": true,
+	"painting": true, "allay": true,
+}
+
+func boolByte(value bool) int8 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func boat(id string) (string, int32, bool) {

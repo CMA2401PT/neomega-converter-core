@@ -13,15 +13,31 @@ Java 实体存在 `entities/` region；Bedrock 用 `digp` 索引和 `actorprefix
 | `UUID` | `UniqueID`，取 IntArray 的后两个 Int |
 | `CustomName` | `CustomName`，JSON 转 § |
 | `Tags` | `Tags` |
-| `PersistenceRequired` | `Persistent` |
-| `Age = -24000` | `IsBaby` |
-| `Health` | `Attributes[minecraft:health]` |
+| `PersistenceRequired` | `Persistent`；有自定义名称或本身不消失的实体也写 1 |
+| `Age < 0` 或 `IsBaby` | `IsBaby` |
+| `Passengers` | 递归转换，每条乘客单独占一个 digp/actorprefix |
+| 所有实体 | `definitions: ["+minecraft:<id>"]` |
+| `Health` | 暂不写 `Attributes`；mcconv 从实体定义表取 Base/Max，本仓库还没有这张表 |
 | `equipment` | `Armor`（四件 list）、`Mainhand`/`Offhand`（单元素 list） |
 | `ArmorItems`/`HandItems`（旧版） | 归一化成同样的 list，顺序 feet、legs、chest、head / main、off |
 | `Item`、`Age` | 掉落物的 `Item`、`Age` |
 | `oak_boat` 等 | `boat`/`chest_boat` + `Variant` |
+| 羊的 `Color`、`Sheared` | `Color`、`Sheared` |
+| 马的 `Variant` | `Variant`/`MarkVariant`，并加 horse 的 `definitions` 组 |
+| 画的 `variant`、`facing` | `Motif`、`Direction`、`block_pos` |
+| 运输船/箱子矿车/漏斗矿车的 `Items`、`LootTable` | `ChestItems`、`LootTable` |
 
 ## 降级
 
 瞬时实体跳过；未知标识通过 `unknown_entity` 计数。村民交易、乘骑、宠物主人、
 盔甲架姿势等不转换。`digp` 键由 UUID 或坐标哈希确定性生成。
+
+## 展示框
+
+Java 的展示框是实体，Bedrock 是 `frame`/`glow_frame` 方块加 `ItemFrame`/`GlowItemFrame`
+方块实体。`je2be/frame.go` 按 `block_pos`（旧版是 `TileX/Y/Z`）把方块替换成
+`frame`，`facing_direction` 取 `Facing`，`item_frame_map_bit` 在物品是已填充地图时写 1，
+并把 `Item`、`ItemRotation`（Java 的 0–7 转成 45° 的倍数）、`ItemDropChance` 写进方块实体。
+
+只替换空气；水下展示框需要额外水层，当前跳过以免丢水。位置不在当前柱子或方块已被占用时
+跳过这条实体，不报错。

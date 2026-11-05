@@ -129,8 +129,12 @@ func ConvertChunkWithActors(pos celler.ChunkPos, dimension int32, src *cellerjav
 	}
 	unknown := make(map[string]int)
 	for _, source := range actors {
-		entity, id, known := javaactors.Convert(source, result.ReportUnknownItem)
-		if entity == nil {
+		if javaactors.IsItemFrame(source) {
+			placeItemFrame(result, source, result.ReportUnknownItem)
+			continue
+		}
+		converted, known := javaactors.ConvertAll(source, result.ReportUnknownItem)
+		if len(converted) == 0 {
 			if known {
 				continue
 			}
@@ -148,7 +152,9 @@ func ConvertChunkWithActors(pos celler.ChunkPos, dimension int32, src *cellerjav
 			result.Diagnostics[index].Count++
 			continue
 		}
-		result.Actors = append(result.Actors, converter.BedrockActor{ID: id, NBT: entity})
+		for _, actor := range converted {
+			result.Actors = append(result.Actors, converter.BedrockActor{ID: actor.ID, NBT: actor.NBT})
+		}
 	}
 	return result, nil
 }
