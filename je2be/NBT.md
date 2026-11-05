@@ -16,15 +16,27 @@
 
 | 转换 | Java 源字段 | 文档 |
 |---|---|---|
-| 方块状态 | 调色板 + `waterlogged` | [java 包说明](convert.go) 与 `be2je/blockentities` 的反向规则 |
+| 方块状态 | 调色板 + `waterlogged` | [je2be 包说明](convert.go) 与 `be2je/blockentities` 的反向规则 |
 | 物品 | `id`、`count`、`components` | [items](items/NBT.md) |
 | 普通实体 | `id`、`Pos`、`Rotation`、`item`、`equipment` 等 | [actors](actors/NBT.md) |
 | level.dat | `Data` 里的世界字段 | [export](export/NBT.md) |
-| 箱子 | `Items`、`CustomName`、`LootTable`、`type` | [bedrock 箱子](../be2je/blockentities/chest/NBT.md) |
-| 熔炉 | `Items`、`lit_time_remaining` 等 | [bedrock 熔炉](../be2je/blockentities/furnace/NBT.md) |
-| 旗帜 | `patterns`、方块颜色 | [bedrock 旗帜](../be2je/blockentities/banner/NBT.md) |
-| 告示牌 | `front_text`/`back_text` | [bedrock 告示牌](../be2je/blockentities/sign/NBT.md) |
-| 其余方块实体 | 槽位、效果、计时、文字 | 对应 `be2je/blockentities/<type>/NBT.md` 的反向字段 |
+| 箱子 | `Items`、`CustomName`、`LootTable`、`type` | [箱子](blockentities/chest/NBT.md) |
+| 熔炉 | `Items`、`lit_time_remaining` 等 | [熔炉](blockentities/furnace/NBT.md) |
+| 旗帜 | `patterns`、方块颜色 | [旗帜](blockentities/banner/NBT.md) |
+| 告示牌 | `front_text`/`back_text` | [告示牌](blockentities/sign/NBT.md) |
+| 潜影盒 | `Items`、`facing` | [潜影盒](blockentities/shulker_box/NBT.md) |
+| 唱片机 | `RecordItem` | [唱片机](blockentities/jukebox/NBT.md) |
+| 讲台 | `Book`、`Page` | [讲台](blockentities/lectern/NBT.md) |
+| 酿造台 | `Items`、`Fuel`、`BrewTime` | [酿造台](blockentities/brewing_stand/NBT.md) |
+| 信标 | `primary_effect`、`secondary_effect` | [信标](blockentities/beacon/NBT.md) |
+| 刷怪笼 | 计时字段、`SpawnData` | [刷怪笼](blockentities/mob_spawner/NBT.md) |
+| 营火 | `Items`、`CookingTimes` | [营火](blockentities/campfire/NBT.md) |
+| 命令方块 | `Command`、`LastOutput` | [命令方块](blockentities/command_block/NBT.md) |
+| 末地门 | `exit_portal`、`Age` | [末地门](blockentities/end_gateway/NBT.md) |
+| 饰纹罐 | `sherds`、`item` | [饰纹罐](blockentities/decorated_pot/NBT.md) |
+
+每个 Java 源字段到 Bedrock 目标字段的对照都在上面链接的文档里；Bedrock → Java
+的反向字段见 `be2je/blockentities/<type>/NBT.md`。
 
 ## 写出
 
