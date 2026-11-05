@@ -153,7 +153,11 @@ func ConvertChunkWithActors(pos celler.ChunkPos, dimension int32, src *cellerjav
 			continue
 		}
 		for _, actor := range converted {
-			result.Actors = append(result.Actors, converter.BedrockActor{ID: actor.ID, NBT: actor.NBT})
+			value := maps.Clone(actor.NBT)
+			value["internalComponents"] = nbt.Compound{
+				"EntityStorageKeyComponent": nbt.Compound{"StorageKey": string(actor.ID[:])},
+			}
+			result.Actors = append(result.Actors, converter.BedrockActor{ID: actor.ID, NBT: value})
 		}
 	}
 	return result, nil
