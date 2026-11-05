@@ -162,3 +162,20 @@ func TestConvertChestMinecart(t *testing.T) {
 		t.Fatalf("items: %#v", entity["ChestItems"])
 	}
 }
+
+func TestEntityDefs(t *testing.T) {
+	EntityDefs["minecraft:zombie"] = EntityDef{Health: 20, Spawn: []string{"minecraft:zombie_adult"}}
+	defer delete(EntityDefs, "minecraft:zombie")
+	entity, _, _ := Convert(nbt.Compound{
+		"id": "minecraft:zombie", "Pos": []float64{0, 64, 0}, "Health": float32(12),
+	}, nil)
+	definitions, _ := entity["definitions"].([]string)
+	if len(definitions) != 2 || definitions[1] != "+minecraft:zombie_adult" {
+		t.Fatalf("definitions: %#v", definitions)
+	}
+	attributes, _ := entity["Attributes"].([]nbt.Compound)
+	if len(attributes) != 1 || attributes[0]["Base"] != float32(20) ||
+		attributes[0]["Max"] != float32(20) || attributes[0]["Current"] != float32(12) {
+		t.Fatalf("attributes: %#v", entity["Attributes"])
+	}
+}

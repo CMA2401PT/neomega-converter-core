@@ -17,7 +17,7 @@ Java 实体存在 `entities/` region；Bedrock 用 `digp` 索引和 `actorprefix
 | `Age < 0` 或 `IsBaby` | `IsBaby` |
 | `Passengers` | 递归转换，每条乘客单独占一个 digp/actorprefix |
 | 所有实体 | `definitions: ["+minecraft:<id>"]` |
-| `Health` | 暂不写 `Attributes`；mcconv 从实体定义表取 Base/Max，本仓库还没有这张表 |
+| `Health` | 有 `EntityDefs` 时写 `Attributes[minecraft:health]` 的 Base/Max/Current；没有表时不写，和 mcconv 缺少实体定义时的行为一致 |
 | `equipment` | `Armor`（四件 list）、`Mainhand`/`Offhand`（单元素 list） |
 | `ArmorItems`/`HandItems`（旧版） | 归一化成同样的 list，顺序 feet、legs、chest、head / main、off |
 | `Item`、`Age` | 掉落物的 `Item`、`Age` |

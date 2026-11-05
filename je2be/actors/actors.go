@@ -24,6 +24,17 @@ type Actor struct {
 	NBT nbt.Compound
 }
 
+// EntityDef 是 Bedrock 实体定义里转换需要的部分，与 mcconv 的 bedrock_entities.json
+// 对应。调用方可以从 Bedrock 安装目录的 behavior pack 载入；为空时实体使用默认行为。
+type EntityDef struct {
+	Spawn  []string `json:"spawn"`
+	Born   []string `json:"born"`
+	Health float32  `json:"health"`
+}
+
+// EntityDefs 以 "minecraft:<identifier>" 为键。
+var EntityDefs = map[string]EntityDef{}
+
 // IsItemFrame 报告实体是否应转成 Bedrock 的方块 + 方块实体。
 func IsItemFrame(source nbt.Compound) bool {
 	id, _ := source["id"].(string)
@@ -129,13 +140,35 @@ func convertOne(source nbt.Compound, report func(item string)) (nbt.Compound, [8
 		persistent = true
 	}
 	entity["Persistent"] = boolByte(persistent)
+	baby := false
 	if short != "item" {
 		if value, ok := source["Age"].(int32); ok && value < 0 {
-			entity["IsBaby"] = int8(1)
+			baby = true
 		}
 	}
 	if value, ok := source["IsBaby"].(int8); ok && value != 0 {
+		baby = true
+	}
+	if baby {
 		entity["IsBaby"] = int8(1)
+	}
+	if def, ok := EntityDefs["minecraft:"+bedrockID]; ok {
+		definitions, _ := entity["definitions"].([]string)
+		groups := def.Spawn
+		if baby && len(def.Born) > 0 {
+			groups = def.Born
+		}
+		for _, group := range groups {
+			definitions = append(definitions, "+"+group)
+		}
+		entity["definitions"] = definitions
+		if def.Health > 0 {
+			if health, ok := real(source["Health"]); ok {
+				entity["Attributes"] = []nbt.Compound{{
+					"Name": "minecraft:health", "Base": def.Health, "Max": def.Health, "Current": float32(health),
+				}}
+			}
+		}
 	}
 	if equipment, ok := equipmentOf(source, report); ok {
 		for key, value := range equipment {
