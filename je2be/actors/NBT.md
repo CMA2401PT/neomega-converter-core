@@ -41,3 +41,7 @@ Java 的展示框是实体，Bedrock 是 `frame`/`glow_frame` 方块加 `ItemFra
 
 只替换空气；水下展示框需要额外水层，当前跳过以免丢水。位置不在当前柱子或方块已被占用时
 跳过这条实体，不报错。
+
+实体定义表可以从 mcconv 生成的 `bedrock_entities.json` 用 `LoadEntityDefs` 载入，
+命令行对应 `java-to-bedrock -entity-defs <file>`。没有表时只写 `definitions: ["+id"]`，
+不写 health 的 `Attributes`，与 mcconv 找不到实体定义时的降级一致。
