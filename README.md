@@ -1,8 +1,10 @@
 # neomega-converter-core
 
-本模块将 Bedrock 方块、方块实体和存档转换为 Java 数据，供渲染或写出使用。
+本模块在 Bedrock 与 Java 之间转换方块、方块实体、物品、实体和存档，供渲染或写出使用。
+`be2je` 读 Bedrock 写 Java，`je2be` 读 Java 写 Bedrock；`bedrock-to-java` 和
+`java-to-bedrock` 命令行由 [neomega-converter](../apps/neomega-converter/README.md) 组合。
 一根区块柱子的水平范围是 16×16，内部按高度分成 16×16×16 的 section。
-转换只读取源柱子；邻居相关的属性修复由 [neomega-converter](../apps/neomega-converter/README.md) 组合。
+邻接属性修复只存在于 Bedrock → Java 方向，由应用层组合。
 本模块依赖方块、NBT 与存档基础库，不依赖渲染器或 fixer。
 
 ## 能力一览
@@ -14,26 +16,39 @@
 
 ```text
 能力                                   输入 → 输出
-bedrock.ConvertState(state)            单个 Bedrock 状态 → Java 状态, ok
+be2je.ConvertState(state)            单个 Bedrock 状态 → Java 状态, ok
 items.ConvertItem(item)                Bedrock 物品 compound → Java 物品 compound 或 nil
-bedrock.ConvertBlockEntity(id, Input)  单格方块实体 → Java 状态 + 可选方块实体 / 实体, ok, err
-bedrock.ConvertSection(pos, dim, ...)  单个 Bedrock section + 方块实体 → ConvertedChunk
-bedrock.ConvertChunk(chunk)            Bedrock 整根柱子 → ConvertedChunk, err
-bedrock.ConvertChunkWithActors(chunk, actors)  同上并追加 digp 实体 → ConvertedChunk, err
+be2je.ConvertBlockEntity(id, Input)  单格方块实体 → Java 状态 + 可选方块实体 / 实体, ok, err
+be2je.ConvertSection(pos, dim, ...)  单个 Bedrock section + 方块实体 → ConvertedChunk
+be2je.ConvertChunk(chunk)            Bedrock 整根柱子 → ConvertedChunk, err
+be2je.ConvertChunkWithActors(chunk, actors)  同上并追加 digp 实体 → ConvertedChunk, err
 adapt.NewConverted(read, opts)        按坐标读取 Bedrock 柱子 → 缓存转换结果 的来源
 export.ToJavaChunk / ToJavaEntities    ConvertedChunk → Java 区块 / Java 实体记录
 export.ConvertLevel(level)             Bedrock level.dat → Java level.dat
 export.ConvertWorld(src, dst, opts)    Bedrock 存档 → Java 存档，不跑 fixer
+
+# Java → Bedrock
+je2be.ConvertChunk(chunk)              Java 整根柱子 → BedrockChunk, err
+je2be.ConvertChunkWithActors(chunk, actors)  同上并追加实体
+je2be/export.WriteChunk(world, chunk)  写出 Bedrock 柱子（含实体、群系）
+je2be/export.ConvertLevel(document)    Java level.dat → Bedrock level.dat
+je2be/export.ConvertWorld(src, dst, opts)  Java 存档 → Bedrock 存档
 ```
 
-这些入口都在本模块；`ConvertState` 内部使用 `neomega-blocks/presets/block-converts/v1` 的两个函数。
-转换的三个粒度共用同一套实现：`ConvertSection` 和 `ConvertChunk` 只差在输入是已解码的单个 section 还是整根柱子的原始记录。
+这些入口都在本模块。两个方向不共用结果类型，也不共用方块实体 Input：
+`ConvertedChunk` 是 Java 结果，`BedrockChunk` 是 Bedrock 结果；两种 `ir.IRBlock`
+状态属于不同的 hash 空间，不能互相直接写回。Java → Bedrock 的字段差异和逐项文档见
+[je2be/NBT.md](je2be/NBT.md)。
+
+`ConvertState` 内部使用 `neomega-blocks/presets/block-converts/v1` 的两个函数。
+Bedrock → Java 的三个粒度共用同一套实现：`ConvertSection` 和 `ConvertChunk`
+只差在输入是已解码的单个 section 还是整根柱子的原始记录。
 
 ### 单个方块状态
 
 存档里的状态可能来自任意 Bedrock 版本，而 Java 转出表只认目标版本的状态。
 所以转换分两步：`ConvertFromBedrock` 先把旧方块名、旧属性和缺失的属性对齐到目标版本，`ConvertToJava` 再转成 Java。
-`bedrock.ConvertState` 就是这两步，本模块的区块转换、花盆规则和物品转换都经过它。
+`be2je.ConvertState` 就是这两步，本模块的区块转换、花盆规则和物品转换都经过它。
 
 ```text
 ConvertState(state.Tidy()) → (java, ok)
@@ -96,8 +111,8 @@ items.ConvertItem(bedrockItem) → javaItem 或 nil
 
 ### 方块实体规则：单格
 
-每个规则子包在 `bedrock/blockentities/` 下，导出 `ID`（Bedrock 实体 id）和 `Convert`。
-`bedrock.ConvertBlockEntity` 按 id 从注册表选规则。
+每个规则子包在 `be2je/blockentities/` 下，导出 `ID`（Bedrock 实体 id）和 `Convert`。
+`be2je.ConvertBlockEntity` 按 id 从注册表选规则。
 
 ```text
 ConvertBlockEntity(id, Input{Base, SourceState, Source, LocalPos, WorldPos, Dimension})
@@ -133,7 +148,7 @@ ConvertBlockEntity(id, Input{Base, SourceState, Source, LocalPos, WorldPos, Dime
 
 chest、sign、banner 和容器类规则产出 Java 方块实体，只有 item_frame 产出 Java 实体，其余规则只改方块状态。
 
-### bedrock.ConvertChunk：整根柱子（阶段 1）
+### be2je.ConvertChunk：整根柱子（阶段 1）
 
 ```text
 ConvertChunk(*cellerbedrock.Chunk) → (*ConvertedChunk, err)
@@ -186,7 +201,7 @@ ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict, IncludeUnfinished}) �
 写出的 Java 区块：
 
 ```text
-ToJavaChunk(ConvertedChunk, 4189) → java.Chunk
+ToJavaChunk(ConvertedChunk, 4189) → cellerjava.Chunk
   Status=minecraft:full，yPos 为维度最低 section，isLightOn=0，Heightmaps 为空
   超出目标高度的 section 丢弃（主世界 -4..19，下界和末地 0..15）
   waterlogged 原样写出；Java 不能含水的方块上的 waterlogged，游戏加载时会丢掉
@@ -207,7 +222,7 @@ ConvertLevel(Level, 4189) → (level.dat, LevelReport, err)
 ## 转换源区块
 
 源数据中的床颜色、花盆植物和第二层水，需要在源数据仍可读取时合并。
-`bedrock.ConvertChunk` 接收 `*celler/bedrock.Chunk`，返回 `*converter.ConvertedChunk`。
+`be2je.ConvertChunk` 接收 `*celler/be2je.Chunk`，返回 `*converter.ConvertedChunk`。
 后者保存整根柱子的 Java 状态、Java 方块实体和诊断，可以作为转换结果缓存。
 方块实体是附着在某个方块上的 NBT 数据，例如箱子物品。
 NBT 是 Minecraft 使用的带类型的数据格式。
@@ -225,9 +240,9 @@ Java 状态用 `ir.IRBlock` 表示，即方块名与属性的规范文本。
 规则的输入同时包含 section 内坐标和世界绝对坐标。
 输出实体的 NBT 坐标与其 `Pos` 一致。
 每个规则子包都附一份 `NBT.md`，说明源字段、目标字段和降级行为，例如
-[床](bedrock/blockentities/bed/NBT.md)和[花盆](bedrock/blockentities/flower_pot/NBT.md)。
-区块记录的整体结构见 [bedrock/NBT.md](bedrock/NBT.md)；物品、普通实体和 level.dat
-分别见 [items/NBT.md](bedrock/items/NBT.md)、[actors/NBT.md](bedrock/actors/NBT.md)、
+[床](be2je/blockentities/bed/NBT.md)和[花盆](be2je/blockentities/flower_pot/NBT.md)。
+区块记录的整体结构见 [be2je/NBT.md](be2je/NBT.md)；物品、普通实体和 level.dat
+分别见 [items/NBT.md](be2je/items/NBT.md)、[actors/NBT.md](be2je/actors/NBT.md)、
 [export/NBT.md](export/NBT.md)。
 
 实体规则执行后，同一格第二层的 `water` 或 `flowing_water` 会让最终状态附带 `waterlogged="true"`。
@@ -249,9 +264,9 @@ section 解码失败通过 `error` 返回。
 
 ## 普通实体
 
-`bedrock.ConvertChunk` 读取柱子自带的 0x32 记录；`bedrock.ConvertChunkWithActors` 再追加
+`be2je.ConvertChunk` 读取柱子自带的 0x32 记录；`be2je.ConvertChunkWithActors` 再追加
 调用方从 `digp`/`actorprefix` 读到的实体（`export.ConvertWorld` 已经这样做）。
-两类记录都交给 `bedrock/actors`，它只转换两版含义一致的字段：
+两类记录都交给 `be2je/actors`，它只转换两版含义一致的字段：
 
 - `id`：Bedrock 标识经一张小的改名表转成 Java id（僵尸猪灵、卫道士、村民变种等）；
 - `Pos`、`Rotation`、`Motion`、`UUID`、`CustomName`、`Tags`、`Fire`、`Air`；
@@ -298,8 +313,8 @@ go run ./neomega-converter-core/examples/convert-chunk
 
 ## Java → Bedrock
 
-`java.ConvertChunk` / `java.ConvertChunkWithActors` 把 Java 柱子转成
-`converter.BedrockChunk`，`java/export` 写出 Bedrock 区块、实体和 `level.dat`。
+`je2be.ConvertChunk` / `je2be.ConvertChunkWithActors` 把 Java 柱子转成
+`converter.BedrockChunk`，`je2be/export` 写出 Bedrock 区块、实体和 `level.dat`。
 反方向不共用 `ConvertedChunk`，也不共用方块实体 Input；两个方向的 IR 状态属于不同
-hash 空间。总览见 [java/NBT.md](java/NBT.md)，命令行见
-[apps/neomega-converter](../../apps/neomega-converter/README.md)。
+hash 空间。总览见 [je2be/NBT.md](je2be/NBT.md)，命令行见
+[apps/neomega-converter](../apps/neomega-converter/README.md)。

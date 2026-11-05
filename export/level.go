@@ -5,7 +5,7 @@ import (
 
 	cellerbedrock "celler/bedrock"
 	"neomega-blocks/ir"
-	"neomega-converter-core/bedrock"
+	"neomega-converter-core/be2je"
 	"neomega-converter-core/mapping"
 	tables "neomega-converter-core/third_party"
 	nbt "neomega-nbt/presets/v1"
@@ -168,7 +168,7 @@ func flatGenerator(source nbt.Compound) (nbt.Compound, bool) {
 	layers := make([]nbt.Compound, 0, len(flat.BlockLayers))
 	for _, layer := range flat.BlockLayers {
 		name := namespaced(layer.BlockName)
-		if state, ok := bedrock.ConvertState(ir.IRBlock(name + " []")); ok {
+		if state, ok := be2je.ConvertState(ir.IRBlock(name + " []")); ok {
 			name = state.NameWithNameSpace()
 		}
 		layers = append(layers, nbt.Compound{"block": name, "height": layer.Count})

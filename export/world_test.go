@@ -7,7 +7,7 @@ import (
 
 	"celler"
 	cellerbedrock "celler/bedrock"
-	"celler/java"
+	cellerjava "celler/java"
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	"neomega-converter-core"
@@ -75,7 +75,7 @@ func TestConvertWorld(t *testing.T) {
 	if report.Diagnostics[converter.UnknownBlock] != 1 || report.Diagnostics[converter.UnsupportedBlockEntity] != 1 || report.UnsupportedBlockEntities["Beehive"] != 1 || len(report.UnknownStates) != 1 || report.UnknownStates[0].Count != 1 {
 		t.Fatalf("diagnostics=%+v", report)
 	}
-	got, err := target.ReadChunk(java.Overworld, celler.ChunkPos{})
+	got, err := target.ReadChunk(cellerjava.Overworld, celler.ChunkPos{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,10 +90,10 @@ func TestConvertWorld(t *testing.T) {
 	if err != nil || len(issues) != 0 || len(entities) != 1 {
 		t.Fatalf("entities=%v issues=%v err=%v", entities, issues, err)
 	}
-	if _, err = target.ReadRaw(java.Overworld, java.Entities, celler.ChunkPos{}); err != nil {
+	if _, err = target.ReadRaw(cellerjava.Overworld, cellerjava.Entities, celler.ChunkPos{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = target.ReadChunk(java.Nether, celler.ChunkPos{}); !errors.Is(err, fs.ErrNotExist) {
+	if _, err = target.ReadChunk(cellerjava.Nether, celler.ChunkPos{}); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("unselected dimension: %v", err)
 	}
 	all := openJava(t)
@@ -101,7 +101,7 @@ func TestConvertWorld(t *testing.T) {
 	if err != nil || report.Chunks[1] != 1 || report.Chunks[2] != 1 || report.DroppedSections[1] != 2 {
 		t.Fatalf("all=%+v err=%v", report, err)
 	}
-	if _, err = all.ReadRaw(java.Nether, java.Entities, celler.ChunkPos{}); !errors.Is(err, fs.ErrNotExist) {
+	if _, err = all.ReadRaw(cellerjava.Nether, cellerjava.Entities, celler.ChunkPos{}); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("empty entity record: %v", err)
 	}
 }
@@ -130,18 +130,18 @@ func TestConvertWorldStrict(t *testing.T) {
 		if report.Chunks[0] != want {
 			t.Fatal(report)
 		}
-		if _, err = target.ReadChunk(java.Overworld, celler.ChunkPos{}); err != nil {
+		if _, err = target.ReadChunk(cellerjava.Overworld, celler.ChunkPos{}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = target.ReadChunk(java.Overworld, celler.ChunkPos{X: 1}); !errors.Is(err, fs.ErrNotExist) {
+		if _, err = target.ReadChunk(cellerjava.Overworld, celler.ChunkPos{X: 1}); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("bad chunk written: %v", err)
 		}
 		// 另开读句柄，确认包括严格模式提前退出在内的所有返回路径均已 Flush。
-		reader, err := java.Open(target.Files, java.Options{ReadOnly: true})
+		reader, err := cellerjava.Open(target.Files, cellerjava.Options{ReadOnly: true})
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = reader.ReadChunk(java.Overworld, celler.ChunkPos{})
+		_, err = reader.ReadChunk(cellerjava.Overworld, celler.ChunkPos{})
 		closeErr := reader.Close()
 		if err != nil || closeErr != nil {
 			t.Fatalf("flush: %v %v", err, closeErr)
@@ -164,7 +164,7 @@ func TestConvertWorldSkipsUnfinished(t *testing.T) {
 	if report.Chunks[0] != 0 || report.Skipped != 1 {
 		t.Fatalf("report=%+v", report)
 	}
-	if _, err := target.ReadChunk(java.Overworld, celler.ChunkPos{}); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := target.ReadChunk(cellerjava.Overworld, celler.ChunkPos{}); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("unfinished chunk written: %v", err)
 	}
 
@@ -176,7 +176,7 @@ func TestConvertWorldSkipsUnfinished(t *testing.T) {
 	if report.Chunks[0] != 1 || report.Skipped != 0 {
 		t.Fatalf("all=%+v", report)
 	}
-	if _, err := all.ReadChunk(java.Overworld, celler.ChunkPos{}); err != nil {
+	if _, err := all.ReadChunk(cellerjava.Overworld, celler.ChunkPos{}); err != nil {
 		t.Fatalf("included chunk missing: %v", err)
 	}
 }
@@ -232,7 +232,7 @@ func TestConvertWorldActors(t *testing.T) {
 	if report.Entities != 1 {
 		t.Fatalf("report=%+v", report)
 	}
-	if _, err = target.ReadRaw(java.Overworld, java.Entities, pos); err != nil {
+	if _, err = target.ReadRaw(cellerjava.Overworld, cellerjava.Entities, pos); err != nil {
 		t.Fatalf("entity record: %v", err)
 	}
 }
@@ -258,7 +258,7 @@ func TestConvertWorldActorErrorKeepsTerrain(t *testing.T) {
 	if report.Diagnostics[converter.NBTError] != 1 {
 		t.Fatalf("diagnostics=%+v", report.Diagnostics)
 	}
-	if _, err := target.ReadChunk(java.Overworld, pos); err != nil {
+	if _, err := target.ReadChunk(cellerjava.Overworld, pos); err != nil {
 		t.Fatalf("terrain lost: %v", err)
 	}
 }

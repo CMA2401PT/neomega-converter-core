@@ -11,7 +11,7 @@ import (
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	converter "neomega-converter-core"
-	"neomega-converter-core/bedrock"
+	"neomega-converter-core/be2je"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -62,7 +62,7 @@ func main() {
 	// 4. error 表示整根柱子不能转换；Diagnostics 保存仍能输出时的可恢复问题。
 	var converted *converter.ConvertedChunk
 	var err error
-	converted, err = bedrock.ConvertChunk(source)
+	converted, err = be2je.ConvertChunk(source)
 	if err != nil {
 		log.Fatal(err)
 	}

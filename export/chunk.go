@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"celler/java"
+	cellerjava "celler/java"
 	"celler/layer_storage"
 	"neomega-converter-core"
 	nbt "neomega-nbt/presets/v1"
@@ -14,9 +14,9 @@ const DataVersion int32 = 4189
 
 // 目标状态表对应 Java 1.21.4，区块、实体和世界元数据必须使用同一版本。
 
-func ToJavaChunk(chunk *converter.ConvertedChunk, dataVersion int32) (*java.Chunk, error) {
+func ToJavaChunk(chunk *converter.ConvertedChunk, dataVersion int32) (*cellerjava.Chunk, error) {
 	// 写出层只补加载所需的容器字段，不改变转换产生的方块状态。
-	result := java.NewChunk(chunk.Pos, dataVersion)
+	result := cellerjava.NewChunk(chunk.Pos, dataVersion)
 	low, high := sectionBounds(chunk.Dimension)
 	ys := make([]int32, 0, len(chunk.Sections))
 	for y := range chunk.Sections {
@@ -32,7 +32,7 @@ func ToJavaChunk(chunk *converter.ConvertedChunk, dataVersion int32) (*java.Chun
 	}
 	for _, y := range ys {
 		source := chunk.Sections[y]
-		if err := result.SetSection(&java.Section{
+		if err := result.SetSection(&cellerjava.Section{
 			Y:      y,
 			Blocks: source.Blocks,
 			Biomes: source.Biomes,
@@ -90,15 +90,15 @@ func sectionBounds(dimension int32) (int32, int32) {
 	return 0, 15
 }
 
-func JavaDimension(dimension int32) (java.Dimension, bool) {
+func JavaDimension(dimension int32) (cellerjava.Dimension, bool) {
 	// Bedrock 的编号与 Java 目录名不同，映射集中在写出边界。
 	switch dimension {
 	case 0:
-		return java.Overworld, true
+		return cellerjava.Overworld, true
 	case 1:
-		return java.Nether, true
+		return cellerjava.Nether, true
 	case 2:
-		return java.End, true
+		return cellerjava.End, true
 	default:
 		return "", false
 	}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"celler"
-	"celler/java"
+	cellerjava "celler/java"
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 
@@ -16,7 +16,7 @@ type ConvertedChunk struct {
 	Pos           celler.ChunkPos
 	Dimension     int32
 	Sections      map[int32]*ConvertedSection
-	BlockEntities []java.BlockEntity
+	BlockEntities []cellerjava.BlockEntity
 	Diagnostics   []Diagnostic
 	Entities      []nbt.Compound
 }

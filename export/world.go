@@ -9,11 +9,11 @@ import (
 
 	"celler"
 	cellerbedrock "celler/bedrock"
-	"celler/java"
+	cellerjava "celler/java"
 	"celler/java/region"
 	"neomega-blocks/ir"
 	"neomega-converter-core"
-	"neomega-converter-core/bedrock"
+	"neomega-converter-core/be2je"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -75,7 +75,7 @@ func finalizedState(chunk *cellerbedrock.Chunk) int32 {
 	}
 }
 
-func ConvertWorld(source *cellerbedrock.World, target *java.World, options ConvertOptions) (report Report, err error) {
+func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options ConvertOptions) (report Report, err error) {
 	// 扫描回调只持有一根柱子，转换和可选修复之间通过磁盘解耦。
 	defer func() { err = errors.Join(err, target.Flush()) }()
 	report = Report{
@@ -86,7 +86,7 @@ func ConvertWorld(source *cellerbedrock.World, target *java.World, options Conve
 	if len(dims) == 0 {
 		dims = []int32{0}
 	}
-	selected := make(map[int32]java.Dimension)
+	selected := make(map[int32]cellerjava.Dimension)
 	for _, dimension := range dims {
 		dim, ok := JavaDimension(dimension)
 		if !ok {
@@ -148,7 +148,7 @@ func ConvertWorld(source *cellerbedrock.World, target *java.World, options Conve
 		for _, document := range rawActors {
 			extra = append(extra, document.Value)
 		}
-		chunk, err := bedrock.ConvertChunkWithActors(sourceChunk, extra)
+		chunk, err := be2je.ConvertChunkWithActors(sourceChunk, extra)
 		if err != nil {
 			report.FailedChunks = append(report.FailedChunks, FailedChunk{
 				Dimension: sourceChunk.Dimension,
@@ -208,7 +208,7 @@ func ConvertWorld(source *cellerbedrock.World, target *java.World, options Conve
 			if err != nil {
 				return err
 			}
-			if err = target.WriteRaw(dim, java.Entities, chunk.Pos, record); err != nil {
+			if err = target.WriteRaw(dim, cellerjava.Entities, chunk.Pos, record); err != nil {
 				return err
 			}
 			report.Entities += uint64(len(chunk.Entities))

@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"celler"
-	"celler/java"
+	cellerjava "celler/java"
 	"celler/java/region"
-	"neomega-converter-core/bedrock"
-	"neomega-converter-core/bedrock/blockentities"
+	"neomega-converter-core/be2je"
+	"neomega-converter-core/be2je/blockentities"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -17,7 +17,7 @@ func TestToJavaEntitiesRoundTrip(t *testing.T) {
 	if ToJavaEntities(source, DataVersion) != nil {
 		t.Fatal("empty entities produced a record")
 	}
-	frame, ok, err := bedrock.ConvertBlockEntity("ItemFrame", blockentities.Input{
+	frame, ok, err := be2je.ConvertBlockEntity("ItemFrame", blockentities.Input{
 		Base:        "minecraft:air []",
 		SourceState: `minecraft:frame ["facing_direction"=3]`,
 		WorldPos:    celler.BlockPos{X: 32, Y: 1, Z: -48},
@@ -37,13 +37,13 @@ func TestToJavaEntitiesRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	world := openJava(t)
-	if err = world.WriteRaw(java.Overworld, java.Entities, source.Pos, record); err != nil {
+	if err = world.WriteRaw(cellerjava.Overworld, cellerjava.Entities, source.Pos, record); err != nil {
 		t.Fatal(err)
 	}
 	if err = world.Flush(); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := world.ReadRaw(java.Overworld, java.Entities, source.Pos)
+	raw, err := world.ReadRaw(cellerjava.Overworld, cellerjava.Entities, source.Pos)
 	if err != nil {
 		t.Fatal(err)
 	}

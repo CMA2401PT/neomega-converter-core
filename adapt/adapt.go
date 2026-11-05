@@ -8,7 +8,7 @@ import (
 	"celler"
 	cellerbedrock "celler/bedrock"
 	"neomega-converter-core"
-	"neomega-converter-core/bedrock"
+	"neomega-converter-core/be2je"
 )
 
 type ChunkSource interface {
@@ -47,7 +47,7 @@ func NewConverted(read ReadChunk, options Options) *Converted {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		return bedrock.ConvertChunk(raw)
+		return be2je.ConvertChunk(raw)
 	}
 	return &Converted{cache: NewCachedSource(options, load)}
 }

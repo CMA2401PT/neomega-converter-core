@@ -5,16 +5,16 @@ import (
 	"testing"
 
 	"celler"
-	"celler/java"
+	cellerjava "celler/java"
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	"neomega-converter-core"
 	nbt "neomega-nbt/presets/v1"
 )
 
-func openJava(t *testing.T) *java.World {
+func openJava(t *testing.T) *cellerjava.World {
 	t.Helper()
-	world, err := java.OpenDirectory(t.TempDir(), java.Options{})
+	world, err := cellerjava.OpenDirectory(t.TempDir(), cellerjava.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestToJavaChunkRoundTrip(t *testing.T) {
 	}
 	source.Sections[0].Biomes = biomes
 	pos := celler.BlockPos{X: -31, Y: -31, Z: 49}
-	source.BlockEntities = []java.BlockEntity{
+	source.BlockEntities = []cellerjava.BlockEntity{
 		{Pos: pos, NBT: nbt.Compound{"id": "minecraft:chest", "x": pos.X, "y": pos.Y, "z": pos.Z, "Items": []nbt.Compound{}}},
 		{Pos: celler.BlockPos{Y: 320}, NBT: nbt.Compound{}},
 	}
@@ -55,10 +55,10 @@ func TestToJavaChunkRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	world := openJava(t)
-	if err = world.WriteChunk(java.Overworld, chunk); err != nil {
+	if err = world.WriteChunk(cellerjava.Overworld, chunk); err != nil {
 		t.Fatal(err)
 	}
-	got, err := world.ReadChunk(java.Overworld, source.Pos)
+	got, err := world.ReadChunk(cellerjava.Overworld, source.Pos)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,10 +107,10 @@ func TestToJavaChunkMissingBottomSections(t *testing.T) {
 		t.Fatal(err)
 	}
 	world := openJava(t)
-	if err = world.WriteChunk(java.Overworld, chunk); err != nil {
+	if err = world.WriteChunk(cellerjava.Overworld, chunk); err != nil {
 		t.Fatal(err)
 	}
-	got, err := world.ReadChunk(java.Overworld, source.Pos)
+	got, err := world.ReadChunk(cellerjava.Overworld, source.Pos)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestDimensionHeight(t *testing.T) {
 			t.Fatalf("dim=%d ys=%v yPos=%v", dim, ys, chunk.NBT.Value["yPos"])
 		}
 	}
-	for dim, want := range map[int32]java.Dimension{0: java.Overworld, 1: java.Nether, 2: java.End} {
+	for dim, want := range map[int32]cellerjava.Dimension{0: cellerjava.Overworld, 1: cellerjava.Nether, 2: cellerjava.End} {
 		if got, ok := JavaDimension(dim); !ok || got != want {
 			t.Fatalf("dim %d: %s %v", dim, got, ok)
 		}
