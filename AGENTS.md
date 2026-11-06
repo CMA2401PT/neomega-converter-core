@@ -4,7 +4,7 @@
 
 所有转换都是三段：读源并得到目标版本的中间结果，再写成原生记录。中间结果是根包的 `JavaChunk` 和 `BedrockChunk`，各包的分工和概念图见 [README 的整体结构](README.md#整体结构)。
 
-`be2je` 先转换基础调色板，再应用单格方块实体规则，最后合并第二层水；`je2be` 与之对称。`javaout` 和 `bedrockout` 是各版本唯一的写出点，`be2je/export`、`je2be/export` 只把读源、翻译和写出接成整图转换。`adapt` 缓存按坐标转换的 `JavaChunk`。`structure` 流式读取 schem、schematic、litematic、nbt 构造 `JavaChunk`；mcstructure 保留原生双层状态构造 `BedrockChunk`，mcworld 解压为原生目录。大数组通过 NBT override 逐段接收并压缩暂存，禁止先分配完整体积数组或全图区块集合。
+`be2je` 先转换基础调色板，再应用单格方块实体规则，最后合并第二层水；`je2be` 与之对称。`javaout` 和 `bedrockout` 是各版本唯一的写出点，`be2je/export`、`je2be/export` 只把读源、翻译和写出接成整图转换。`be2je/adapt` 缓存按坐标转换的 `JavaChunk`。`structure` 流式读取 schem、schematic、litematic、nbt 构造 `JavaChunk`；mcstructure 保留原生双层状态构造 `BedrockChunk`，mcworld 解压为原生目录。大数组通过 NBT override 逐段接收并压缩暂存，禁止先分配完整体积数组或全图区块集合。
 
 ## 边界与变更约束
 

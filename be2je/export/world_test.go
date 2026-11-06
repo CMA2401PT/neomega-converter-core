@@ -86,7 +86,7 @@ func TestConvertWorld(t *testing.T) {
 	if report.Chunks[0] != 1 || len(report.Chunks) != 1 || report.DroppedSections[0] != 1 || report.Entities != 1 || report.BlockEntities != 1 {
 		t.Fatalf("report=%+v", report)
 	}
-	if report.Diagnostics[converter.UnknownBlock] != 1 || report.Diagnostics[converter.UnsupportedBlockEntity] != 1 || report.UnsupportedBlockEntities["Beehive"] != 1 || len(report.UnknownStates) != 1 || report.UnknownStates[0].Count != 1 {
+	if diagnostics := report.Diagnostics; diagnostics.ByKind[converter.UnknownBlock] != 1 || diagnostics.ByKind[converter.UnsupportedBlockEntity] != 1 || diagnostics.UnsupportedBlockEntities["Beehive"] != 1 || len(diagnostics.UnknownStates) != 1 {
 		t.Fatalf("diagnostics=%+v", report)
 	}
 	got, err := target.ReadChunk(cellerjava.Overworld, celler.ChunkPos{})
@@ -269,7 +269,7 @@ func TestConvertWorldActorErrorKeepsTerrain(t *testing.T) {
 	if report.Chunks[0] != 1 || len(report.FailedChunks) != 0 {
 		t.Fatalf("report=%+v", report)
 	}
-	if report.Diagnostics[converter.NBTError] != 1 {
+	if report.Diagnostics.ByKind[converter.NBTError] != 1 {
 		t.Fatalf("diagnostics=%+v", report.Diagnostics)
 	}
 	if _, err := target.ReadChunk(cellerjava.Overworld, pos); err != nil {

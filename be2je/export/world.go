@@ -5,12 +5,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"sort"
 
 	"celler"
 	cellerbedrock "celler/bedrock"
 	cellerjava "celler/java"
-	"neomega-blocks/ir"
 	"neomega-converter-core"
 	"neomega-converter-core/be2je"
 	"neomega-converter-core/internal/pipeline"
@@ -31,37 +29,15 @@ type ConvertOptions struct {
 	IncludeUnfinished bool
 }
 
-type FailedChunk struct {
-	// 错误与位置一起保存，调用方可以定位未写出的柱子。
-	Dimension int32
-	Pos       celler.ChunkPos
-	Err       error
-}
-
-type StateCount struct {
-	// 未知状态按影响格数排序，便于优先补充影响最大的映射。
-	State ir.IRBlock
-	Count uint64
-}
-
-// ItemCount 是转不出的物品按名称合并后的计数。
-type ItemCount struct {
-	Item  string
-	Count uint64
-}
-
 type Report struct {
-	// 计数以实际写出为准；诊断同时保留逐类合计和最常见的十个未知状态。
-	Chunks                   map[int32]uint64
-	FailedChunks             []FailedChunk
-	Diagnostics              map[converter.DiagnosticKind]uint64
-	UnknownStates            []StateCount
-	UnknownItems             []ItemCount
-	UnsupportedBlockEntities map[string]uint64
-	DroppedSections          map[int32]uint64
-	Skipped                  uint64
-	BlockEntities            uint64
-	Entities                 uint64
+	// 计数以实际写出为准；诊断包括写出失败的柱子，它们同样说明映射缺了什么。
+	Chunks          map[int32]uint64
+	FailedChunks    []converter.FailedChunk
+	Diagnostics     converter.DiagnosticSummary
+	DroppedSections map[int32]uint64
+	Skipped         uint64
+	BlockEntities   uint64
+	Entities        uint64
 }
 
 // finalizedState 读取 0x36 记录的生成状态。缺失按已完成处理，和 mcconv 一致。
@@ -99,8 +75,9 @@ func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options
 	}
 	defer func() { err = errors.Join(err, target.Flush()) }()
 	report = Report{
-		Chunks: make(map[int32]uint64), Diagnostics: make(map[converter.DiagnosticKind]uint64),
-		UnsupportedBlockEntities: make(map[string]uint64), DroppedSections: make(map[int32]uint64),
+		Chunks:          make(map[int32]uint64),
+		Diagnostics:     converter.NewDiagnosticSummary(),
+		DroppedSections: make(map[int32]uint64),
 	}
 	dims := options.Dimensions
 	if len(dims) == 0 {
@@ -115,36 +92,6 @@ func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options
 		selected[dimension] = dim
 		report.Chunks[dimension], report.DroppedSections[dimension] = 0, 0
 	}
-	unknown := make(map[ir.IRBlock]uint64)
-	unknownItems := make(map[string]uint64)
-	defer func() {
-		for item, count := range unknownItems {
-			report.UnknownItems = append(report.UnknownItems, ItemCount{Item: item, Count: count})
-		}
-		sort.Slice(report.UnknownItems, func(i, j int) bool {
-			a, b := report.UnknownItems[i], report.UnknownItems[j]
-			if a.Count != b.Count {
-				return a.Count > b.Count
-			}
-			return a.Item < b.Item
-		})
-		if len(report.UnknownItems) > 10 {
-			report.UnknownItems = report.UnknownItems[:10]
-		}
-		for state, count := range unknown {
-			report.UnknownStates = append(report.UnknownStates, StateCount{State: state, Count: count})
-		}
-		sort.Slice(report.UnknownStates, func(i, j int) bool {
-			a, b := report.UnknownStates[i], report.UnknownStates[j]
-			if a.Count != b.Count {
-				return a.Count > b.Count
-			}
-			return a.State < b.State
-		})
-		if len(report.UnknownStates) > 10 {
-			report.UnknownStates = report.UnknownStates[:10]
-		}
-	}()
 	err = pipeline.Run(ctx, workers,
 		func(ctx context.Context, yield func(bedrockInput) error) error {
 			return source.ScanChunks(func(raw *cellerbedrock.Chunk) error {
@@ -180,24 +127,10 @@ func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options
 				report.Skipped++
 				return nil
 			}
-			for _, diagnostic := range output.diagnostics {
-				count := diagnostic.Count
-				if count == 0 {
-					count = 1
-				}
-				report.Diagnostics[diagnostic.Kind] += count
-				switch diagnostic.Kind {
-				case converter.UnknownBlock:
-					unknown[diagnostic.State] += count
-				case converter.UnsupportedBlockEntity:
-					report.UnsupportedBlockEntities[diagnostic.BlockEntityID] += count
-				case converter.UnknownItem:
-					unknownItems[diagnostic.ItemID] += count
-				}
-			}
+			report.Diagnostics.Add(output.diagnostics)
 			report.DroppedSections[output.dimension] += output.dropped
 			if output.convertErr != nil {
-				report.FailedChunks = append(report.FailedChunks, FailedChunk{Dimension: output.dimension, Pos: output.pos, Err: output.convertErr})
+				report.FailedChunks = append(report.FailedChunks, converter.FailedChunk{Dimension: output.dimension, Pos: output.pos, Err: output.convertErr})
 				if options.Strict {
 					return fmt.Errorf("dimension %d chunk %v: %w", output.dimension, output.pos, output.convertErr)
 				}

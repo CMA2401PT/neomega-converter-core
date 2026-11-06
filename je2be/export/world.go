@@ -31,16 +31,12 @@ type ConvertOptions struct {
 	NewWorld bool
 }
 
-type FailedChunk struct {
-	Dimension int32
-	Pos       celler.ChunkPos
-	Err       error
-}
 type Report struct {
+	// 计数与诊断只包括已经提交的柱子。
 	Chunks       map[int32]uint64
+	FailedChunks []converter.FailedChunk
+	Diagnostics  converter.DiagnosticSummary
 	Entities     uint64
-	FailedChunks []FailedChunk
-	Diagnostics  map[converter.DiagnosticKind]uint64
 }
 
 // chunkTaskBytes 是一根柱子在任务内解码、转换和编码的工作区估算。
@@ -49,7 +45,7 @@ const chunkTaskBytes = 64 * 1024 * 1024
 // ConvertWorld 串行读取独占的压缩记录，并行解码、转换和编码，再按源顺序批量写入。
 // 报告仅计入已提交的区块；Strict 失败前的结果仍会提交，取消时丢弃尚未提交的批次。
 func ConvertWorld(source *cellerjava.World, target *cellerbedrock.World, options ConvertOptions) (Report, error) {
-	report := Report{Chunks: make(map[int32]uint64), Diagnostics: make(map[converter.DiagnosticKind]uint64)}
+	report := Report{Chunks: make(map[int32]uint64), Diagnostics: converter.NewDiagnosticSummary()}
 	workers, err := pipeline.Workers(pipeline.Limit{
 		MemoryMiB: options.MemoryMiB,
 		Requested: options.Workers,
@@ -102,9 +98,7 @@ func ConvertWorld(source *cellerjava.World, target *cellerbedrock.World, options
 				}
 				// 报告只计入已经提交的柱子。
 				return batch.Add(output.encoded, func() {
-					for _, diagnostic := range output.diagnostics {
-						report.Diagnostics[diagnostic.Kind] += max(diagnostic.Count, 1)
-					}
+					report.Diagnostics.Add(output.diagnostics)
 					report.Entities += output.entities
 					report.Chunks[id]++
 				})
@@ -191,7 +185,7 @@ func encodeJavaChunk(ctx context.Context, input javaInput, dimension int32) (bed
 }
 
 func (r *Report) failed(dimension int32, pos celler.ChunkPos, err error, strict bool) error {
-	r.FailedChunks = append(r.FailedChunks, FailedChunk{Dimension: dimension, Pos: pos, Err: err})
+	r.FailedChunks = append(r.FailedChunks, converter.FailedChunk{Dimension: dimension, Pos: pos, Err: err})
 	if strict {
 		return err
 	}

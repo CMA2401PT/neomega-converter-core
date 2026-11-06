@@ -30,7 +30,7 @@ mcworld ────────── structure ──────────�
 | `javaout`、`bedrockout` | 把中间结果写成原生记录，定义区块字段、高度、记录版本和 `level.dat` 的新世界内容 | 数据从哪来 |
 | `be2je/export`、`je2be/export` | 整图转换：扫描源存档、并行翻译和编码、按序写出、汇总报告，并翻译 `level.dat` | 单格规则、记录格式 |
 | `structure` | 流式读取结构文件，按片区重排后构造同版本的中间结果 | 跨版本翻译 |
-| `adapt` | 按坐标读取 Bedrock 柱子，翻译成 `JavaChunk` 并缓存，供浏览器和修复使用 | 写出 |
+| `be2je/adapt` | 按坐标读取 Bedrock 柱子，翻译成 `JavaChunk` 并缓存，供浏览器和修复使用 | 写出 |
 
 `internal/pipeline` 是整图转换和结构转换共用的有界并行调度：一个协程读源，多个任务计算，一个协程按源顺序写出。
 
@@ -78,7 +78,7 @@ je2be/export.ConvertWorld(src, dst, opts)   Java 存档 → Bedrock 存档
 structure.ConvertFile(ctx, input, output, options...)  结构文件 → 原生 Java／Bedrock 存档目录；拒绝覆盖非空目录
 
 # 按坐标读取
-adapt.NewConverted(read, opts)              按坐标读取 Bedrock 柱子 → 缓存的 JavaChunk
+be2je/adapt.NewConverted(read, opts)        按坐标读取 Bedrock 柱子 → 缓存的 JavaChunk
 ```
 
 两个方向不共用方块实体 Input。Java → Bedrock 的字段差异和逐项文档见
@@ -237,12 +237,14 @@ ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict, IncludeUnfinished}) �
   柱子转换、编码或压缩失败记 FailedChunks；写盘失败中止整图
   不跑 fixer；需要按邻居重算形状的格子由 javaout 登记进 PostProcessing，游戏加载区块时重算
   err：Strict 时第一根失败的柱子；写盘失败
-  Report：每个维度的柱子数、失败的柱子、跳过的柱子数、各诊断种类合计、未知状态前 10、
-          不支持的方块实体按 id 合计、超出 Java 高度被丢弃的 section 数、方块实体数、实体数
+  Report：每个维度的柱子数、失败的柱子、诊断汇总、跳过的柱子数、
+          超出 Java 高度被丢弃的 section 数、方块实体数、实体数
 
 ```
 
 柱子的写出格式见 [javaout/NBT.md](javaout/NBT.md)：高度范围、加载字段、PostProcessing 名单和实体记录都在那里定义。
+
+`Report` 与反向的 `je2be/export.Report` 都用 `converter.FailedChunk` 列失败柱子，用 `converter.DiagnosticSummary` 汇总诊断：按种类合计，再按未知状态、未知物品、不支持的方块实体名称细分。`converter.TopCounts` 取其中影响最大的几项，补映射时从这里开始。两个方向的报告共用同一种诊断格式，往返转换后可以直接对照。
 
 ```text
 ConvertLevel(Level) → (level.dat, LevelReport)
@@ -344,7 +346,7 @@ section 解码失败通过 `error` 返回。
 ## 按坐标读取与缓存
 
 浏览或区域导出通常只需要一部分柱子。
-`adapt.NewConverted` 接收一个绑定来源和维度的 Bedrock 读取回调，按坐标转换并缓存结果。
+`be2je/adapt.NewConverted` 接收一个绑定来源和维度的 Bedrock 读取回调，按坐标转换并缓存结果。
 第三个可选参数 `ReadActors` 读取 digp/actorprefix 中与地形分开的普通实体；读取失败记入 `nbt_error`，地形继续转换。
 `Chunk(ctx, pos)` 返回只读共享的 `JavaChunk`；缺失柱子返回 `nil, nil`。
 源回调用 `fs.ErrNotExist` 表达缺失，支持包装后的错误。
