@@ -20,12 +20,28 @@ import (
 	nbt "neomega-nbt/presets/v1"
 )
 
+// 结构先按 128×128 的水平片区把游程落盘；写出时一个片区最多展开成 64 根区块柱。
+const (
+	bucketShift = 7
+	bucketWidth = 1 << bucketShift
+	// 片区记录每 64 KiB 落一块，解压时按同一粒度准备缓冲。
+	bucketChunk = 64 * 1024
+	// 一条游程记录的宽度：片区内的 x/z、世界 y 和调色板下标各占 4 字节。
+	recordSize = 12
+	// 所有片区累计的追加缓冲上限，超过就整体压缩落盘。
+	bufferBudget = 8 * 1024 * 1024
+)
+
 type bucketPos struct{ x, z int32 }
+
+// extent 是片区记录压缩后的位置与长度，raw 是解压后的大小。
 type extent struct {
 	offset int64
 	size   int
 	raw    int
 }
+
+// bucket 是一个水平片区：追加中的记录缓冲、已经落盘的分段、方块实体和实体。
 type bucket struct {
 	buffer   []byte
 	extents  []extent
@@ -34,15 +50,15 @@ type bucket struct {
 }
 
 // blockSpool 把源文件的扫描顺序转成小片区顺序。
-// 游程只拆到 128×128 的水平片区边界；8 MiB 缓冲写满后压缩落盘。
+// 游程只拆到 128×128 的水平片区边界；累计缓冲写满后压缩落盘。
 // 写出任务各自展开一个片区，生成最多 64 根区块柱，不保留整张图的方块数组。
 type blockSpool struct {
-	reader      *fileview.View
+	ctx         context.Context
+	progress    func(Progress)
 	memoryBytes int64
 	workers     int
-	progress    func(Progress)
-	ctx         context.Context
 	file        *os.File
+	reader      *fileview.View
 	buckets     map[bucketPos]*bucket
 	palette     []ir.IRBlock
 	bufferBytes int
@@ -53,17 +69,29 @@ type blockSpool struct {
 	highY       int32
 }
 
-func newBlockSpool(ctx context.Context, dir string) (*blockSpool, error) {
-	file, err := os.CreateTemp(dir, "columns-*")
+// newBlockSpool 为本次转换建暂存文件；预算、并发和进度都取自 job。
+func newBlockSpool(j *job) (*blockSpool, error) {
+	file, err := os.CreateTemp(j.staging, "columns-*")
 	if err != nil {
 		return nil, err
 	}
-	s := &blockSpool{memoryBytes: 512 * 1024 * 1024, progress: func(Progress) {}, ctx: ctx, file: file, highY: 320, buckets: make(map[bucketPos]*bucket)}
+	s := &blockSpool{
+		ctx:         j.ctx,
+		progress:    j.report,
+		memoryBytes: int64(j.opts.MemoryMiB) * 1024 * 1024,
+		workers:     j.opts.Workers,
+		file:        file,
+		buckets:     map[bucketPos]*bucket{},
+		highY:       maxWorldY,
+	}
 	s.writer = bufio.NewWriterSize(file, 1024*1024)
+	// BestSpeed 是合法级别，flate 不会在这里返回错误。
 	s.compressor, _ = flate.NewWriter(&s.compressed, flate.BestSpeed)
 	return s, nil
 }
-func (s *blockSpool) bucket(pos bucketPos) *bucket {
+
+// at 取一个片区，没有就建一个空的。
+func (s *blockSpool) at(pos bucketPos) *bucket {
 	b := s.buckets[pos]
 	if b == nil {
 		b = &bucket{}
@@ -85,22 +113,22 @@ func (s *blockSpool) run(x, y, z, length int32, state uint32, clearAir bool) err
 		return err
 	}
 	for length > 0 {
-		n := min(length, 128-(x&127))
-		b := s.bucket(bucketPos{x >> 7, z >> 7})
-
-		// 片区内 X/Z 各占 7 bit，Y 加 64 后存入剩余位，容纳扩展世界高度。
-		start := uint32(x&127) | uint32(z&127)<<7 | uint32(y+64)<<14
+		// 一段游程不跨片区边界，逐段写进各自片区的记录缓冲。
+		n := min(length, bucketWidth-(x&(bucketWidth-1)))
+		b := s.at(bucketPos{x >> bucketShift, z >> bucketShift})
+		// 片区内 X/Z 各占 7 bit，世界 y 减主世界底部后存入剩余位，容纳扩展世界高度。
+		start := uint32(x&(bucketWidth-1)) | uint32(z&(bucketWidth-1))<<bucketShift | uint32(y-minWorldY)<<(2*bucketShift)
 		oldCapacity := cap(b.buffer)
 		b.buffer = binary.LittleEndian.AppendUint32(b.buffer, start)
 		b.buffer = binary.LittleEndian.AppendUint32(b.buffer, uint32(n))
 		b.buffer = binary.LittleEndian.AppendUint32(b.buffer, state)
 		s.bufferBytes += cap(b.buffer) - oldCapacity
-		if len(b.buffer) >= 64*1024-12 {
+		if len(b.buffer) >= bucketChunk-recordSize {
 			if err := s.flush(b); err != nil {
 				return err
 			}
 		}
-		if s.bufferBytes >= 8*1024*1024 {
+		if s.bufferBytes >= bufferBudget {
 			for _, pending := range s.buckets {
 				if err := s.flush(pending); err != nil {
 					return err
@@ -112,6 +140,8 @@ func (s *blockSpool) run(x, y, z, length int32, state uint32, clearAir bool) err
 	}
 	return nil
 }
+
+// flush 压缩一个片区的追加缓冲，记下分段位置后清空缓冲。
 func (s *blockSpool) flush(b *bucket) error {
 	if b.buffer == nil {
 		return nil
@@ -136,13 +166,8 @@ func (s *blockSpool) flush(b *bucket) error {
 }
 
 // linearRun 将 Y-Z-X 扫描的一段方块按行拆开，不逐格计算除法与坐标。
+// 空气和越界的调色板下标交给 run 处理，这里只负责换算。
 func (s *blockSpool) linearRun(index, count uint64, size, origin [3]int32, state uint32, clearAir bool) error {
-	if int(state) >= len(s.palette) || s.palette[state] == "" {
-		return fmt.Errorf("structure: palette index %d", state)
-	}
-	if isAir(s.palette[state]) && !clearAir {
-		return nil
-	}
 	width, length := uint64(size[0]), uint64(size[2])
 	for count > 0 {
 		x := index % width
@@ -158,44 +183,69 @@ func (s *blockSpool) linearRun(index, count uint64, size, origin [3]int32, state
 	}
 	return nil
 }
+
+// addTile 把方块实体挂到它所属的片区，写出时再按区块归类。
 func (s *blockSpool) addTile(tile cellerjava.BlockEntity) {
-	b := s.bucket(bucketPos{tile.Pos.X >> 7, tile.Pos.Z >> 7})
+	b := s.at(bucketPos{tile.Pos.X >> bucketShift, tile.Pos.Z >> bucketShift})
 	b.tiles = append(b.tiles, tile)
 }
+
+// addEntity 把实体挂到它所在水平位置的片区，写出时再按区块归类。
 func (s *blockSpool) addEntity(entity nbt.Compound) {
-	pos, ok := float3(entity["Pos"])
+	pos, ok := nbtFloat3(entity["Pos"])
 	if !ok {
 		return
 	}
-	b := s.bucket(bucketPos{int32(floorDiv(pos[0], 128)), int32(floorDiv(pos[2], 128))})
+	b := s.at(bucketPos{floorCell(pos[0], bucketWidth), floorCell(pos[2], bucketWidth)})
 	b.entities = append(b.entities, entity)
 }
 
-func (s *blockSpool) write(dir, name string, spawn [3]int32) (int, error) {
+// seal 结束暂存：刷出剩余游程，把记录文件映射成只读视图供 readBucket 读取。
+// reserveBytes 留给写出阶段，不参与映射；映射失败时仍按偏移读取。
+func (s *blockSpool) seal(reserveBytes int64) (*fileview.View, error) {
 	for _, b := range s.buckets {
 		if err := s.flush(b); err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
 	if err := s.writer.Flush(); err != nil {
-		return 0, err
+		return nil, err
 	}
-	// 按整个片区的高度预留调色板、编码结果和压缩工作区；这是并发估算，非堆上限。
-	workerBytes := max(int64(32*1024*1024), 128*128*int64(s.highY+64)*4)
-	view, err := fileview.Open(s.file, max(0, s.memoryBytes-workerBytes))
+	view, err := fileview.Open(s.file, max(0, s.memoryBytes-reserveBytes))
+	if err != nil {
+		return nil, err
+	}
+	s.reader = view
+	return view, nil
+}
+
+// discard 释放没有正常收尾的暂存文件。
+func (s *blockSpool) discard() error {
+	if s.file == nil {
+		return nil
+	}
+	err := s.file.Close()
+	s.file = nil
+	return err
+}
+
+// writeWorld 把 spool 里的方块写成 Java 存档，返回写出的区块数。
+func (s *blockSpool) writeWorld(dir, name string, spawn [3]int32) (int, error) {
+	// 按整个片区的高度预留调色板、编码结果和压缩工作区；这是并发估算，不是堆上限。
+	workerBytes := max(int64(32*1024*1024), bucketWidth*bucketWidth*int64(s.highY-minWorldY)*4)
+	view, err := s.seal(workerBytes)
 	if err != nil {
 		return 0, err
 	}
 	defer view.Close()
-	s.reader = view
 	world, err := cellerjava.OpenDirectory(dir, cellerjava.Options{})
 	if err != nil {
 		return 0, err
 	}
 	defer world.Close()
 	positions := make([]bucketPos, 0, len(s.buckets))
-	for p := range s.buckets {
-		positions = append(positions, p)
+	for pos := range s.buckets {
+		positions = append(positions, pos)
 	}
 	slices.SortFunc(positions, func(a, b bucketPos) int {
 		if a.z != b.z {
@@ -212,17 +262,9 @@ func (s *blockSpool) write(dir, name string, spawn [3]int32) (int, error) {
 	if err != nil {
 		return count, err
 	}
-	level, _, err := export.ConvertLevel(bedrock.Level{NBT: nbt.Document{Value: nbt.Compound{
-		"LevelName": name, "SpawnX": spawn[0], "SpawnY": spawn[1], "SpawnZ": spawn[2],
-		"GameType": int32(1), "commandsAllowed": int8(1), "Generator": int32(2), "FlatWorldLayers": `{"biome_id":1,"block_layers":[]}`,
-	}}}, export.DataVersion)
+	level, err := javaLevel(dir, name, spawn, s.highY)
 	if err != nil {
 		return count, err
-	}
-	if s.highY > 320 {
-		if err := writeHeightPack(dir, &level, s.highY); err != nil {
-			return count, err
-		}
 	}
 	if err = world.WriteLevel(level); err != nil {
 		return count, err
@@ -230,10 +272,28 @@ func (s *blockSpool) write(dir, name string, spawn [3]int32) (int, error) {
 	return count, world.Commit()
 }
 
+// javaLevel 生成这次转换的 level.dat：空超平坦主世界，出生点就是结构顶面。
+// 高出主世界的结构再写一份扩展高度的数据包。
+func javaLevel(dir, name string, spawn [3]int32, highY int32) (nbt.Document, error) {
+	level, _, err := export.ConvertLevel(bedrock.Level{NBT: nbt.Document{Value: nbt.Compound{
+		"LevelName": name, "SpawnX": spawn[0], "SpawnY": spawn[1], "SpawnZ": spawn[2],
+		"GameType": int32(1), "commandsAllowed": int8(1), "Generator": int32(2), "FlatWorldLayers": `{"biome_id":1,"block_layers":[]}`,
+	}}}, export.DataVersion)
+	if err != nil {
+		return nbt.Document{}, err
+	}
+	if highY > maxWorldY {
+		if err := writeHeightPack(dir, &level, highY); err != nil {
+			return nbt.Document{}, err
+		}
+	}
+	return level, nil
+}
+
 // readBucket 依次解压一个片区的记录，Java 与 Bedrock 共用空间重排结果。
 func (s *blockSpool) readBucket(ctx context.Context, p bucketPos, b *bucket, visit func(x, y, z, length int32, state uint32) error) error {
-	raw := make([]byte, 64*1024)
-	compressed := make([]byte, 128*1024)
+	raw := make([]byte, bucketChunk)
+	compressed := make([]byte, 2*bucketChunk)
 	reader := flate.NewReader(bytes.NewReader(nil))
 	defer reader.Close()
 	for _, part := range b.extents {
@@ -247,13 +307,17 @@ func (s *blockSpool) readBucket(ctx context.Context, p bucketPos, b *bucket, vis
 		if err := reader.(flate.Resetter).Reset(bytes.NewReader(data), nil); err != nil {
 			return err
 		}
-		_, err = io.ReadFull(reader, raw[:part.raw])
-		if err != nil {
+		if _, err = io.ReadFull(reader, raw[:part.raw]); err != nil {
 			return err
 		}
-		for data := raw[:part.raw]; len(data) > 0; data = data[12:] {
-			start, n, state := binary.LittleEndian.Uint32(data), binary.LittleEndian.Uint32(data[4:]), binary.LittleEndian.Uint32(data[8:])
-			if err := visit(p.x*128+int32(start&127), int32(start>>14)-64, p.z*128+int32(start>>7&127), int32(n), state); err != nil {
+		for data := raw[:part.raw]; len(data) > 0; data = data[recordSize:] {
+			start := binary.LittleEndian.Uint32(data)
+			length := binary.LittleEndian.Uint32(data[4:])
+			state := binary.LittleEndian.Uint32(data[8:])
+			x := p.x*bucketWidth + int32(start&(bucketWidth-1))
+			y := int32(start>>(2*bucketShift)) + minWorldY
+			z := p.z*bucketWidth + int32(start>>bucketShift&(bucketWidth-1))
+			if err := visit(x, y, z, int32(length), state); err != nil {
 				return err
 			}
 		}
@@ -261,13 +325,16 @@ func (s *blockSpool) readBucket(ctx context.Context, p bucketPos, b *bucket, vis
 	return nil
 }
 
-// clearTiles 让后一个投影区域的方块覆盖同时移除旧区域的方块实体。
+// clearTiles 让后一个投影区域的方块覆盖时同时移除旧区域的方块实体。
 func (s *blockSpool) clearTiles(minimum, size [3]int32) {
 	for _, b := range s.buckets {
 		kept := b.tiles[:0]
 		for _, tile := range b.tiles {
 			p := tile.Pos
-			if p.X >= minimum[0] && p.X < minimum[0]+size[0] && p.Y >= minimum[1] && p.Y < minimum[1]+size[1] && p.Z >= minimum[2] && p.Z < minimum[2]+size[2] {
+			inside := p.X >= minimum[0] && p.X < minimum[0]+size[0] &&
+				p.Y >= minimum[1] && p.Y < minimum[1]+size[1] &&
+				p.Z >= minimum[2] && p.Z < minimum[2]+size[2]
+			if inside {
 				continue
 			}
 			kept = append(kept, tile)

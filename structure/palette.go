@@ -8,16 +8,16 @@ import (
 	"strings"
 )
 
-// parseSchemPalette 解析 Sponge 状态文本到按下标排列的 Java 调色板。
-func parseSchemPalette(raw map[string]any) ([]ir.IRBlock, error) {
+// parseSchemPalette 把 Sponge 的「状态文本 → 下标」表展开成按下标排列的 Java 调色板。
+// 下标可以不连续，空洞留空串；放置时越界或空串按调色板错误拒绝。
+func parseSchemPalette(raw map[string]int32) ([]ir.IRBlock, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("schem: empty palette")
 	}
 	assigned := map[int32]ir.IRBlock{}
 	maxIndex := int32(-1)
-	for spec, value := range raw {
-		index, ok := nbtInt32(value)
-		if !ok || index < 0 {
+	for spec, index := range raw {
+		if index < 0 {
 			return nil, fmt.Errorf("schem: palette index for %q", spec)
 		}
 		block, err := parseState(spec)
@@ -28,15 +28,12 @@ func parseSchemPalette(raw map[string]any) ([]ir.IRBlock, error) {
 			return nil, fmt.Errorf("schem: duplicate palette index %d", index)
 		}
 		assigned[index] = block
-		if index > maxIndex {
-			maxIndex = index
-		}
+		maxIndex = max(maxIndex, index)
 	}
 	palette := make([]ir.IRBlock, maxIndex+1)
 	for index, block := range assigned {
 		palette[index] = block
 	}
-
 	return palette, nil
 }
 
@@ -91,4 +88,26 @@ func parseState(spec string) (ir.IRBlock, error) {
 		return "", fmt.Errorf("schem: block state %q", spec)
 	}
 	return block, nil
+}
+
+// javaPaletteEntry 是 Java 结构里的调色板条目：方块名加属性表。
+type javaPaletteEntry struct {
+	Name       string
+	Properties map[string]any
+}
+
+// javaPalette 把 Java 调色板条目转成整理过的 IR 状态。
+func javaPalette(entries []javaPaletteEntry) ([]ir.IRBlock, error) {
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("structure: empty Java palette")
+	}
+	result := make([]ir.IRBlock, len(entries))
+	for i, entry := range entries {
+		block, err := ir.NewIRBlockFromGo(entry.Name, entry.Properties)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = block.Tidy()
+	}
+	return result, nil
 }

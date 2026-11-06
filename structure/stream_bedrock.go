@@ -1,7 +1,6 @@
 package structure
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"maps"
@@ -14,13 +13,13 @@ import (
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	converter "neomega-converter-core"
-	"neomega-converter-core/internal/fileview"
 	beexport "neomega-converter-core/je2be/export"
 	rawnbt "neomega-nbt"
 	goencode "neomega-nbt/encoder-go-object"
 	nbt "neomega-nbt/presets/v1"
 )
 
+// layerStreams 接收 block_indices 的两层数组，每层一个 numberStream。
 type layerStreams struct {
 	dir     string
 	current *numberStream
@@ -31,10 +30,14 @@ func (l *layerStreams) GetReciver(rawnbt.HighLevelValueType) (goencode.ValueReci
 	return goencode.ValueReciver{ListConstructor: l}, nil
 }
 func (l *layerStreams) HasFlag(rawnbt.Flag) bool { return false }
-func (l *layerStreams) GetReusableElementPointer(t rawnbt.HighLevelValueType, length int, erase bool) (any, error) {
+
+// GetReusableElementPointer 为下一层换一个新的数组接收器。
+func (l *layerStreams) GetReusableElementPointer(rawnbt.HighLevelValueType, int, bool) (any, error) {
 	l.current = &numberStream{dir: l.dir}
 	return l.current, nil
 }
+
+// OnNextElement 保存刚写完的一层；current 会被重置给下一层用。
 func (l *layerStreams) OnNextElement() error {
 	saved := *l.current
 	l.layers = append(l.layers, &saved)
@@ -47,11 +50,29 @@ func (l *layerStreams) NonTypedEmptyList() error {
 }
 func (l *layerStreams) TypedEmptyList(rawnbt.HighLevelValueType) error { return l.NonTypedEmptyList() }
 
+// discard 释放没有正常收尾的临时文件。
+func (l *layerStreams) discard() {
+	for _, layer := range l.layers {
+		layer.discard()
+	}
+	if l.current != nil {
+		l.current.discard()
+	}
+}
+
+// bedrockPaletteEntry 是基岩调色板条目：方块名、状态和条目版本。
 type bedrockPaletteEntry struct {
 	Name    string         `nbt:"name"`
 	States  map[string]any `nbt:"states"`
 	Version int32          `nbt:"version"`
 }
+
+// blockPositionData 是按体积索引排列的方块实体数据。
+type blockPositionData struct {
+	Entity nbt.Compound `nbt:"block_entity_data"`
+}
+
+// nativeStructure 是 .mcstructure 的根标签；双层方块、条目版本和实体都保留原样。
 type nativeStructure struct {
 	Format    int32    `nbt:"format_version"`
 	Origin    [3]int32 `nbt:"structure_world_origin"`
@@ -61,32 +82,21 @@ type nativeStructure struct {
 		Entities []nbt.Compound `nbt:"entities"`
 		Palette  struct {
 			Default struct {
-				Blocks    []bedrockPaletteEntry `nbt:"block_palette"`
-				Positions map[string]struct {
-					Entity nbt.Compound `nbt:"block_entity_data"`
-				} `nbt:"block_position_data"`
+				Blocks    []bedrockPaletteEntry        `nbt:"block_palette"`
+				Positions map[string]blockPositionData `nbt:"block_position_data"`
 			} `nbt:"default"`
 		} `nbt:"palette"`
 	} `nbt:"structure"`
 }
 
 // convertMCStructure 保留基岩双层状态和条目版本，直接写基岩存档，不经过 Java 映射。
-func convertMCStructure(ctx context.Context, path, output, name string, options Options, report func(Progress)) error {
-	temp := filepath.Dir(output)
+func convertMCStructure(j *job) error {
 	h := &nativeStructure{}
-	h.Structure.Indices = &layerStreams{dir: temp}
-	defer func() {
-		for _, s := range h.Structure.Indices.layers {
-			if s.file != nil {
-				s.file.Close()
-			}
-		}
-		s := h.Structure.Indices.current
-		if s != nil && s.file != nil {
-			s.file.Close()
-		}
-	}()
-	if err := readNBT(ctx, path, &streamCompound{target: h, children: map[string]any{"structure": &streamCompound{target: &h.Structure, children: map[string]any{"block_indices": h.Structure.Indices}}}}, nbt.EncodingLittleEndian, report); err != nil {
+	h.Structure.Indices = &layerStreams{dir: j.staging}
+	defer h.Structure.Indices.discard()
+	nested := &streamCompound{target: &h.Structure, children: map[string]any{"block_indices": h.Structure.Indices}}
+	root := &streamCompound{target: h, children: map[string]any{"structure": nested}}
+	if err := readNBT(j.ctx, j.input, root, nbt.EncodingLittleEndian, j.report); err != nil {
 		return err
 	}
 	if h.Format != 1 {
@@ -106,24 +116,27 @@ func convertMCStructure(ctx context.Context, path, output, name string, options 
 		return err
 	}
 	h.Origin[1] += offset
-	sink, err := newBlockSpool(ctx, temp)
+	sink, err := newBlockSpool(j)
 	if err != nil {
 		return err
 	}
-	defer sink.file.Close()
+	defer sink.discard()
 	entries := h.Structure.Palette.Default.Blocks
-	palette := make([]bedrock.Block, len(entries))
-	if len(palette) == 0 {
+	if len(entries) == 0 {
 		return fmt.Errorf("mcstructure: empty palette")
 	}
+	// 状态按条目版本写回；两层方块共用一份 spool 调色板。
+	blocks := make([]bedrock.Block, len(entries))
 	for i, entry := range entries {
 		state, err := ir.NewIRBlockFromGo(entry.Name, entry.States)
 		if err != nil {
 			return err
 		}
-		palette[i] = bedrock.Block{State: state.Tidy(), Version: entry.Version}
+		blocks[i] = bedrock.Block{State: state.Tidy(), Version: entry.Version}
 		sink.palette = append(sink.palette, state.Tidy())
 	}
+	// 第二层的索引整体偏移一层调色板的长度，写出时按这个步长拆回两层。
+	layerStride := len(blocks)
 	sink.palette = append(sink.palette, sink.palette...)
 	if len(h.Structure.Indices.layers) == 0 || len(h.Structure.Indices.layers) > 2 {
 		return fmt.Errorf("mcstructure: invalid layer count")
@@ -138,12 +151,12 @@ func convertMCStructure(ctx context.Context, path, output, name string, options 
 			index += count
 			id := int64(value)
 			if id == -1 {
-				return nil
+				return nil // 这一层的这一格没有方块
 			}
-			if id < 0 || id >= int64(len(palette)) {
+			if id < 0 || id >= int64(len(blocks)) {
 				return fmt.Errorf("mcstructure: palette index %d", id)
 			}
-			if isAir(palette[id].State) {
+			if isAir(blocks[id].State) {
 				return nil
 			}
 			// 基岩体积为 X-Y-Z，连续游程沿 Z 前进。
@@ -153,8 +166,9 @@ func convertMCStructure(ctx context.Context, path, output, name string, options 
 				y := row % uint64(h.Size[1])
 				x := row / uint64(h.Size[1])
 				n := min(count, uint64(h.Size[2])-z)
+				state := uint32(id) + uint32(layer*layerStride)
 				for dz := uint64(0); dz < n; dz++ {
-					if err := sink.run(h.Origin[0]+int32(x), h.Origin[1]+int32(y), h.Origin[2]+int32(z+dz), 1, uint32(id)+uint32(layer*len(palette)), false); err != nil {
+					if err := sink.run(h.Origin[0]+int32(x), h.Origin[1]+int32(y), h.Origin[2]+int32(z+dz), 1, state, false); err != nil {
 						return err
 					}
 				}
@@ -185,7 +199,7 @@ func convertMCStructure(ctx context.Context, path, output, name string, options 
 		sink.addTile(cellerjava.BlockEntity{Pos: pos, NBT: value})
 	}
 	for _, raw := range h.Structure.Entities {
-		pos, ok := float3(raw["Pos"])
+		pos, ok := nbtFloat3(raw["Pos"])
 		if !ok {
 			return fmt.Errorf("mcstructure: entity missing Pos")
 		}
@@ -193,21 +207,13 @@ func convertMCStructure(ctx context.Context, path, output, name string, options 
 		value["Pos"] = []float32{float32(pos[0]) + float32(h.Origin[0]), float32(pos[1]) + float32(h.Origin[1]), float32(pos[2]) + float32(h.Origin[2])}
 		sink.addEntity(value)
 	}
-	for _, b := range sink.buckets {
-		if err := sink.flush(b); err != nil {
-			return err
-		}
-	}
-	if err := sink.writer.Flush(); err != nil {
-		return err
-	}
-	view, err := fileview.Open(sink.file, max(0, int64(options.MemoryMiB-64)*1024*1024))
+	// 写出阶段要给每个片区的区块和压缩留出 64 MiB，其余预算才用于映射记录文件。
+	view, err := sink.seal(64 * 1024 * 1024)
 	if err != nil {
 		return err
 	}
 	defer view.Close()
-	sink.reader = view
-	world, err := bedrock.Open(output, bedrock.Options{})
+	world, err := bedrock.Open(j.output, bedrock.Options{})
 	if err != nil {
 		return err
 	}
@@ -218,10 +224,10 @@ func convertMCStructure(ctx context.Context, path, output, name string, options 
 		}
 	}()
 	done := int64(0)
-	report(Progress{Stage: "writing", Total: int64(len(sink.buckets))})
+	j.report(Progress{Stage: "writing", Total: int64(len(sink.buckets))})
 	actorID := int64(1)
 	for pos, b := range sink.buckets {
-		if err := ctx.Err(); err != nil {
+		if err := j.ctx.Err(); err != nil {
 			return err
 		}
 		chunks := map[celler.ChunkPos]*converter.BedrockChunk{}
@@ -233,17 +239,20 @@ func convertMCStructure(ctx context.Context, path, output, name string, options 
 			}
 			return chunk
 		}
-		err = sink.readBucket(ctx, pos, b, func(x, y, z, length int32, state uint32) error {
-			layer, index := int(state)/len(palette), int(state)%len(palette)
+		err = sink.readBucket(j.ctx, pos, b, func(x, y, z, length int32, state uint32) error {
+			layer, index := int(state)/layerStride, int(state)%layerStride
 			for dx := int32(0); dx < length; dx++ {
-				p := celler.ChunkPos{X: (x + dx) >> 4, Z: z >> 4}
-				chunk := chunkAt(p)
+				chunk := chunkAt(celler.ChunkPos{X: (x + dx) >> 4, Z: z >> 4})
 				section := chunk.Sections[y>>4]
 				if section == nil {
-					section = &converter.BedrockSection{Layers: []*layer_storage.Palette[bedrock.Block]{layer_storage.MakePaletteStorage(bedrock.Block{State: air, Version: palette[index].Version}), layer_storage.MakePaletteStorage(bedrock.Block{State: air, Version: palette[index].Version})}}
+					empty := bedrock.Block{State: air, Version: blocks[index].Version}
+					section = &converter.BedrockSection{Layers: []*layer_storage.Palette[bedrock.Block]{
+						layer_storage.MakePaletteStorage(empty),
+						layer_storage.MakePaletteStorage(empty),
+					}}
 					chunk.Sections[y>>4] = section
 				}
-				section.Layers[layer].Set(layer_storage.At(x+dx, y, z), palette[index])
+				section.Layers[layer].Set(layer_storage.At(x+dx, y, z), blocks[index])
 			}
 			return nil
 		})
@@ -255,8 +264,8 @@ func convertMCStructure(ctx context.Context, path, output, name string, options 
 			chunk.BlockEntities = append(chunk.BlockEntities, tile.NBT)
 		}
 		for _, entity := range b.entities {
-			p, _ := float3(entity["Pos"])
-			chunk := chunkAt(celler.ChunkPos{X: int32(floorDiv(p[0], 16)), Z: int32(floorDiv(p[2], 16))})
+			pos, _ := nbtFloat3(entity["Pos"])
+			chunk := chunkAt(celler.ChunkPos{X: floorCell(pos[0], 16), Z: floorCell(pos[2], 16)})
 			var key [8]byte
 			binary.LittleEndian.PutUint64(key[:], uint64(actorID))
 			entity["UniqueID"] = actorID
@@ -269,15 +278,20 @@ func convertMCStructure(ctx context.Context, path, output, name string, options 
 			}
 		}
 		done++
-		report(Progress{Stage: "writing", Completed: done, Total: int64(len(sink.buckets))})
+		j.report(Progress{Stage: "writing", Completed: done, Total: int64(len(sink.buckets))})
 	}
 	maximum := [3]int32{h.Origin[0] + h.Size[0], h.Origin[1] + h.Size[1], h.Origin[2] + h.Size[2]}
-	spawn := spawnAbove(h.Origin, maximum)
-	level := bedrock.Level{Version: 10, NBT: nbt.Document{Value: nbt.Compound{"StorageVersion": int32(10), "lastOpenedWithVersion": []int32{1, 21, 50, 0}, "LevelName": name, "SpawnX": spawn[0], "SpawnY": spawn[1], "SpawnZ": spawn[2], "GameType": int32(1), "Generator": int32(2), "FlatWorldLayers": `{"biome_id":1,"block_layers":[]}`}}}
+	j.spawn = spawnPoint(h.Origin, maximum)
+	// Bedrock 世界只记录版本和出生点；lastOpenedWithVersion 让游戏按 1.21.50 的格式打开。
+	level := bedrock.Level{Version: 10, NBT: nbt.Document{Value: nbt.Compound{
+		"StorageVersion": int32(10), "lastOpenedWithVersion": []int32{1, 21, 50, 0}, "LevelName": j.name,
+		"SpawnX": j.spawn[0], "SpawnY": j.spawn[1], "SpawnZ": j.spawn[2], "GameType": int32(1),
+		"Generator": int32(2), "FlatWorldLayers": `{"biome_id":1,"block_layers":[]}`,
+	}}}
 	if err = world.WriteLevel(level); err != nil {
 		return err
 	}
-	if err = os.WriteFile(filepath.Join(output, "levelname.txt"), []byte(name), 0644); err != nil {
+	if err = os.WriteFile(filepath.Join(j.output, "levelname.txt"), []byte(j.name), 0644); err != nil {
 		return err
 	}
 	closed = true

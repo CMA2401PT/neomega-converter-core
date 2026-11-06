@@ -203,7 +203,7 @@ func TestStreamingSequenceDoesNotRetainArray(t *testing.T) {
 	if err != nil || !handled || calls != 64 || s.count != int64(total) {
 		t.Fatal(handled, err, calls, s.count)
 	}
-	info, err := os.Stat(s.path)
+	info, err := os.Stat(s.temp.path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,6 +241,23 @@ func TestSchematicSpongeTileWrapper(t *testing.T) {
 	tiles, _, err := chunk.BlockEntities()
 	if err != nil || len(tiles) != 1 || tiles[0].NBT["CustomName"] != "kept" || tiles[0].NBT["id"] != "minecraft:dispenser" {
 		t.Fatal(tiles, err)
+	}
+}
+
+// AddBlocks 存在时每格单独合并；高 4 位为 0 不能改变方块本身。
+func TestSchematicAddBlocksKeepsLowByte(t *testing.T) {
+	root := map[string]any{
+		"Width": int16(3), "Height": int16(1), "Length": int16(1), "Materials": "Alpha",
+		"Blocks": nbt.Array([]byte{1, 1, 1}), "Data": nbt.Array([]byte{0, 0, 0}), "AddBlocks": nbt.Array([]byte{0, 0}),
+	}
+	result, err := ConvertFile(context.Background(), writeNBT(t, "high.schematic", root, nbt.EncodingBigEndian), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for x := int32(0); x < 3; x++ {
+		if got := readBlock(t, result.Directory, x, 0, 0); got != "minecraft:stone []" {
+			t.Fatal(x, got)
+		}
 	}
 }
 

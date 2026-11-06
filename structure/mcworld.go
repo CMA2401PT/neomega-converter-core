@@ -3,6 +3,7 @@ package structure
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,32 +12,21 @@ import (
 	"strings"
 )
 
-// extractMCWorld 将原生世界包展开为目录，保留数据库和世界的其他文件。
-func extractMCWorld(ctx context.Context, input, output string, report func(Progress)) error {
-	archive, err := zip.OpenReader(input)
+// convertMCWorld 把原生世界包展开成目录：世界文件原样拷贝，不翻译数据库。
+func convertMCWorld(j *job) error {
+	archive, err := zip.OpenReader(j.input)
 	if err != nil {
 		return err
 	}
 	defer archive.Close()
-	prefix := ""
-	found := false
-	for _, file := range archive.File {
-		if path.Base(file.Name) == "level.dat" {
-			candidate := strings.TrimSuffix(file.Name, "level.dat")
-			if found && candidate != prefix {
-				return fmt.Errorf("mcworld: multiple worlds")
-			}
-			prefix = candidate
-			found = true
-		}
+	prefix, err := worldPrefix(archive.File)
+	if err != nil {
+		return err
 	}
-	if !found {
-		return fmt.Errorf("mcworld: missing level.dat")
-	}
-	report(Progress{Stage: "extracting", Total: int64(len(archive.File))})
+	j.report(Progress{Stage: "extracting", Total: int64(len(archive.File))})
 	for index, file := range archive.File {
-		report(Progress{Stage: "extracting", Completed: int64(index), Total: int64(len(archive.File))})
-		if err := ctx.Err(); err != nil {
+		j.report(Progress{Stage: "extracting", Completed: int64(index), Total: int64(len(archive.File))})
+		if err := j.ctx.Err(); err != nil {
 			return err
 		}
 		relative, ok := strings.CutPrefix(file.Name, prefix)
@@ -47,7 +37,7 @@ func extractMCWorld(ctx context.Context, input, output string, report func(Progr
 		if strings.Contains(relative, "\\") || !filepath.IsLocal(filepath.FromSlash(relative)) {
 			return fmt.Errorf("mcworld: invalid path %q", file.Name)
 		}
-		target := filepath.Join(output, filepath.FromSlash(relative))
+		target := filepath.Join(j.output, filepath.FromSlash(relative))
 		if file.FileInfo().IsDir() {
 			if err := os.MkdirAll(target, 0755); err != nil {
 				return err
@@ -57,26 +47,44 @@ func extractMCWorld(ctx context.Context, input, output string, report func(Progr
 		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 			return err
 		}
-		err := func() error {
-			source, err := file.Open()
-			if err != nil {
-				return err
-			}
-			defer source.Close()
-			dest, err := os.Create(target)
-			if err != nil {
-				return err
-			}
-			_, copyErr := io.Copy(dest, contextReader{ctx, source})
-			closeErr := dest.Close()
-			if copyErr != nil {
-				return copyErr
-			}
-			return closeErr
-		}()
-		if err != nil {
+		if err := copyEntry(j.ctx, file, target); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// worldPrefix 找到压缩包里世界的根目录：level.dat 所在的那一层，必须唯一。
+func worldPrefix(files []*zip.File) (string, error) {
+	prefix := ""
+	found := false
+	for _, file := range files {
+		if path.Base(file.Name) != "level.dat" {
+			continue
+		}
+		candidate := strings.TrimSuffix(file.Name, "level.dat")
+		if found && candidate != prefix {
+			return "", fmt.Errorf("mcworld: multiple worlds")
+		}
+		prefix, found = candidate, true
+	}
+	if !found {
+		return "", fmt.Errorf("mcworld: missing level.dat")
+	}
+	return prefix, nil
+}
+
+// copyEntry 把一个 zip 条目写到 target；复制按块读，取消不必等整个条目读完。
+func copyEntry(ctx context.Context, file *zip.File, target string) error {
+	source, err := file.Open()
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	dest, err := os.Create(target)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(dest, contextReader{ctx: ctx, reader: source})
+	return errors.Join(copyErr, dest.Close())
 }

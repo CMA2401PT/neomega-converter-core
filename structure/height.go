@@ -8,18 +8,21 @@ import (
 )
 
 // writeHeightPack 为超高 Java 结构提供与区块高度一致的维度定义，游戏加载时不会截断。
+// 它直接改调用方的 level.dat 文档：启用数据包，并把主世界换成这个维度类型。
 func writeHeightPack(dir string, level *nbt.Document, maxY int32) error {
 	pack := filepath.Join(dir, "datapacks", "structure-height")
 	directory := filepath.Join(pack, "data", "neomega", "dimension_type")
 	if err := os.MkdirAll(directory, 0755); err != nil {
 		return err
 	}
+	// pack_format 61 对应 Java 1.21.4，也就是 DataVersion 4189。
 	if err := os.WriteFile(filepath.Join(pack, "pack.mcmeta"), []byte(`{"pack":{"pack_format":61,"description":"结构文件的主世界高度"}}`), 0644); err != nil {
 		return err
 	}
 	dimension := map[string]any{
 		"ambient_light": 0, "bed_works": true, "coordinate_scale": 1, "effects": "minecraft:overworld",
-		"has_ceiling": false, "has_raids": true, "has_skylight": true, "height": maxY + 64, "logical_height": maxY + 64, "min_y": -64,
+		"has_ceiling": false, "has_raids": true, "has_skylight": true,
+		"height": maxY - minWorldY, "logical_height": maxY - minWorldY, "min_y": minWorldY,
 		"infiniburn": "#minecraft:infiniburn_overworld", "monster_spawn_block_light_limit": 0,
 		"monster_spawn_light_level": map[string]any{"type": "minecraft:uniform", "min_inclusive": 0, "max_inclusive": 7},
 		"natural":                   true, "piglin_safe": false, "respawn_anchor_works": false, "ultrawarm": false,

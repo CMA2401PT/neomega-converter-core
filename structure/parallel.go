@@ -13,6 +13,7 @@ import (
 	nbt "neomega-nbt/presets/v1"
 )
 
+// encodedChunk 是一根已经编码并压缩好的区块；entities 为空表示这根柱子没有实体。
 type encodedChunk struct {
 	pos      celler.ChunkPos
 	terrain  region.Record
@@ -82,38 +83,41 @@ func (s *blockSpool) writeBuckets(world *cellerjava.World, positions []bucketPos
 	return count, ctx.Err()
 }
 
-// encodeBucket 的可变调色板和编码缓冲仅属于当前任务，片区之间只共享源数据。
+// encodeBucket 把一个片区的游程展开成区块柱再编码。可变调色板和编码缓冲只属于当前任务，
+// 片区之间只共享源数据。
 func (s *blockSpool) encodeBucket(ctx context.Context, p bucketPos) ([]encodedChunk, error) {
 	b := s.buckets[p]
-	columns := make(map[celler.ChunkPos]*column)
+	timestamp := uint32(time.Now().Unix())
+	built := columns{}
 	if err := s.readBucket(ctx, p, b, func(x, y, z, length int32, state uint32) error {
 		block := s.palette[state]
 		for i := int32(0); i < length; i++ {
-			place(columns, x+i, y, z, block)
+			built.place(x+i, y, z, block)
 		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	for _, tile := range b.tiles {
-		col := ensure(columns, tile.Pos.Chunk())
+		col := built.at(tile.Pos.Chunk())
 		col.blockEntities = append(col.blockEntities, tile)
 	}
 	for _, entity := range b.entities {
-		pos, _ := float3(entity["Pos"])
-		col := ensure(columns, celler.ChunkPos{X: int32(floorDiv(pos[0], 16)), Z: int32(floorDiv(pos[2], 16))})
+		pos, _ := nbtFloat3(entity["Pos"])
+		col := built.at(celler.ChunkPos{X: floorCell(pos[0], 16), Z: floorCell(pos[2], 16)})
 		col.entities = append(col.entities, entity)
 	}
-	output := make([]encodedChunk, 0, len(columns))
-	for pos, col := range columns {
+	height := [2]int32{minWorldY >> 4, (s.highY >> 4) - 1}
+	output := make([]encodedChunk, 0, len(built))
+	for pos, col := range built {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		chunk := col.converted(pos)
+		chunk := col.chunk(pos)
 		if chunk == nil {
 			continue
 		}
-		terrain, err := export.ToJavaChunk(chunk, export.DataVersion, [2]int32{-4, (s.highY >> 4) - 1})
+		terrain, err := export.ToJavaChunk(chunk, export.DataVersion, height)
 		if err != nil {
 			return nil, err
 		}
@@ -121,7 +125,6 @@ func (s *blockSpool) encodeBucket(ctx context.Context, p bucketPos) ([]encodedCh
 		if err != nil {
 			return nil, err
 		}
-		timestamp := uint32(time.Now().Unix())
 		record, err := region.Compress(data, timestamp)
 		if err != nil {
 			return nil, err

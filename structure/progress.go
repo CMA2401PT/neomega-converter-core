@@ -19,3 +19,11 @@ type Options struct {
 	// Progress 由转换调用协程串行通知；回调应尽快返回。
 	Progress func(Progress)
 }
+
+// withDefaults 补上零值选项，调用方只需要写关心的字段。
+func (o Options) withDefaults() Options {
+	if o.MemoryMiB == 0 {
+		o.MemoryMiB = 512
+	}
+	return o
+}

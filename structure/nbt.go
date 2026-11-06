@@ -21,7 +21,7 @@ func readNBT(ctx context.Context, path string, target any, encoding nbt.Encoding
 	if err != nil {
 		return err
 	}
-	counted := &progressReader{reader: contextReader{ctx, file}, total: stat.Size(), report: report}
+	counted := &progressReader{reader: contextReader{ctx: ctx, reader: file}, total: stat.Size(), report: report}
 	report(Progress{Stage: "reading", Total: stat.Size()})
 	reader := bufio.NewReaderSize(counted, 64*1024)
 	magic, err := reader.Peek(2)
@@ -50,6 +50,7 @@ func readNBT(ctx context.Context, path string, target any, encoding nbt.Encoding
 	return ctx.Err()
 }
 
+// contextReader 在每次读取前检查取消；解压和复制都按块读取，取消不必等整份文件读完。
 type contextReader struct {
 	ctx    context.Context
 	reader io.Reader
@@ -82,8 +83,8 @@ func nbtInt32(value any) (int32, bool) {
 	}
 }
 
-// int3 接收结构坐标的 IntArray 或 Int List，其余 NBT 数组仍保留原始标签类型。
-func int3(value any) ([3]int32, bool) {
+// nbtInt3 接收结构坐标的 IntArray 或 Int List，其余 NBT 数组仍保留原始标签类型。
+func nbtInt3(value any) ([3]int32, bool) {
 	switch pos := value.(type) {
 	case [3]int32:
 		return pos, true
@@ -93,6 +94,33 @@ func int3(value any) ([3]int32, bool) {
 		}
 	}
 	return [3]int32{}, false
+}
+
+// nbtFloat3 接收实体坐标的 Double 或 Float 列表，统一成三个 float64。
+func nbtFloat3(value any) ([]float64, bool) {
+	switch typed := value.(type) {
+	case []float64:
+		if len(typed) != 3 {
+			return nil, false
+		}
+		return append([]float64(nil), typed...), true
+	case []float32:
+		if len(typed) != 3 {
+			return nil, false
+		}
+		return []float64{float64(typed[0]), float64(typed[1]), float64(typed[2])}, true
+	default:
+		return nil, false
+	}
+}
+
+// nbtID 读取方块实体或实体的 id：Sponge 用 Id，原版用小写 id，两种写法都出现在结构文件里。
+func nbtID(compound nbt.Compound) string {
+	if id, _ := compound["Id"].(string); id != "" {
+		return id
+	}
+	id, _ := compound["id"].(string)
+	return id
 }
 
 // progressReader 计量实际读入的源文件字节，不额外读取或缓存数据。

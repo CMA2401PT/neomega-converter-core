@@ -15,7 +15,7 @@ type View struct {
 }
 
 // Open 在预算足够时映射文件；超出预算或平台未实现映射时，保留按偏移读取。
-// 两条路径都不会将整份文件复制进 Go 堆。
+// 两条路径都不会将整份文件复制进 Go 堆；MappedBytes 非零表示这次确实映射了。
 func Open(file *os.File, maxBytes int64) (*View, error) {
 	info, err := file.Stat()
 	if err != nil {
@@ -38,7 +38,7 @@ func Open(file *os.File, maxBytes int64) (*View, error) {
 }
 
 // ReadRange 借出映射的一段，只能读取，且不可持有到 Close 之后。
-// 未映射时使用调用方独占的 scratch，避免每个压缩片段分配缓冲。
+// 未映射时把数据读进调用方的 scratch，scratch 至少要有 size 字节，这样每个压缩片段不必各自分配缓冲。
 func (v *View) ReadRange(offset int64, size int, scratch []byte) ([]byte, error) {
 	if v.data != nil {
 		return v.data[offset : offset+int64(size)], nil
