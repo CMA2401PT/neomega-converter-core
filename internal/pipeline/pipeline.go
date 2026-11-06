@@ -8,19 +8,38 @@ import (
 	"sync"
 )
 
-// Workers 按估算工作内存限制并发。至少执行一个任务，预算不是进程 RSS 硬上限。
-// reserved 包含映射和写入批次；taskBytes 包含一个任务的输入、工作区和输出。
-func Workers(memoryMiB, requested int, reserved, taskBytes int64) (int, error) {
+// DefaultMemoryMiB 是未指定内存预算时的默认值。展示或校验默认值的调用方读这里，
+// 不要另写一份，否则两处默认值会悄悄分叉。
+const DefaultMemoryMiB = 512
+
+// Limit 是一次并发计算的预算。单位分开写在字段名里，调用方按字段名填，
+// 不必再记参数顺序。
+type Limit struct {
+	// MemoryMiB 是总预算；零值用 DefaultMemoryMiB。
+	MemoryMiB int
+	// Requested 是调用方要求的任务数；零值按 CPU 自动选择，最多 8 个。
+	Requested int
+	// Reserved 是映射与写出批次占用的字节，先从总预算里扣掉。
+	Reserved int64
+	// TaskBytes 是单个任务的输入、工作区与输出，必须大于零。
+	TaskBytes int64
+}
+
+// Workers 按预算限制并发数，至少执行一个任务。预算不是进程 RSS 硬上限。
+func Workers(limit Limit) (int, error) {
+	memoryMiB := limit.MemoryMiB
 	if memoryMiB == 0 {
-		memoryMiB = 512
+		memoryMiB = DefaultMemoryMiB
 	}
-	if memoryMiB < 64 || requested < 0 {
+	if memoryMiB < 64 || limit.Requested < 0 {
 		return 0, fmt.Errorf("转换内存预算至少 64 MiB，workers 不能为负数")
 	}
+	requested := limit.Requested
 	if requested == 0 {
 		requested = min(runtime.GOMAXPROCS(0), 8)
 	}
-	return min(requested, max(1, int((int64(memoryMiB)*1024*1024-reserved)/taskBytes))), nil
+	available := int64(memoryMiB)*1024*1024 - limit.Reserved
+	return min(requested, max(1, int(available/limit.TaskBytes))), nil
 }
 
 type result[T any] struct {
@@ -34,6 +53,7 @@ type task[I, O any] struct {
 
 // Run 的 produce 独占输入句柄，work 独占每个输入，consume 在调用协程按输入顺序执行。
 // 最多有 workers 个未交付任务，外加生产者正在读取的一个输入；慢任务不会导致结果无限积压。
+// workers 至少为 1，本包的 Workers 保证这一点。
 // 返回前停止并等待全部任务，调用者随后可以安全关闭源文件或解除映射。
 func Run[I, O any](
 	ctx context.Context,
@@ -47,6 +67,7 @@ func Run[I, O any](
 	defer func() { cancel(); group.Wait() }()
 	jobs := make(chan task[I, O])
 	order := make(chan task[I, O], workers)
+	// slots 是未交付任务的名额：生产者取到名额才入队，消费完一个才放回。
 	slots := make(chan struct{}, workers)
 	produced := make(chan error, 1)
 	group.Go(func() {

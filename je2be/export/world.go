@@ -43,13 +43,21 @@ type Report struct {
 
 var dimensions = map[int32]cellerjava.Dimension{0: cellerjava.Overworld, 1: cellerjava.Nether, 2: cellerjava.End}
 
+// chunkTaskBytes 是一根柱子在任务内解码、转换和编码的工作区估算。
+const chunkTaskBytes = 64 * 1024 * 1024
+
 // ConvertWorld 串行读取独占的压缩记录，并行解码、转换和编码，再按源顺序批量写入。
 // 报告仅计入已提交的区块；Strict 失败前的结果仍会提交，取消时丢弃尚未提交的批次。
 func ConvertWorld(source *cellerjava.World, target *cellerbedrock.World, options ConvertOptions) (Report, error) {
 	report := Report{Chunks: make(map[int32]uint64), Diagnostics: make(map[converter.DiagnosticKind]uint64)}
 	// 批次保留 8 MiB 编码记录，提交时数据库 batch 还要复制一份。
 	const batchBytes = 8 * 1024 * 1024
-	workers, err := pipeline.Workers(options.MemoryMiB, options.Workers, 2*batchBytes, 64*1024*1024)
+	workers, err := pipeline.Workers(pipeline.Limit{
+		MemoryMiB: options.MemoryMiB,
+		Requested: options.Workers,
+		Reserved:  2 * batchBytes,
+		TaskBytes: chunkTaskBytes,
+	})
 	if err != nil {
 		return report, err
 	}
@@ -155,6 +163,8 @@ type javaInput struct {
 	readErr, actorErr error
 }
 
+// bedrockOutput 是一根柱子转换后的编码结果；读记录或转换失败放进 convertErr 而不是
+// 作为错误返回，让写出侧按 Strict 决定是否提前结束，并照常统计诊断。
 type bedrockOutput struct {
 	pos         celler.ChunkPos
 	encoded     *cellerbedrock.EncodedChunk

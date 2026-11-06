@@ -120,13 +120,15 @@ func TestFailureWaitsForWorkers(t *testing.T) {
 }
 
 func TestMemoryBudgetLimitsConcurrency(t *testing.T) {
-	got, err := Workers(64, 8, 16*1024*1024, 64*1024*1024)
+	got, err := Workers(Limit{MemoryMiB: 64, Requested: 8, Reserved: 16 * 1024 * 1024, TaskBytes: 64 * 1024 * 1024})
 	if err != nil || got != 1 {
 		t.Fatal(got, err)
 	}
-	for _, pair := range [][2]int{{63, 1}, {512, -1}} {
-		if _, err := Workers(pair[0], pair[1], 0, 1); err == nil {
-			t.Fatal(pair)
+	overBudget := Limit{MemoryMiB: 63, Requested: 1, TaskBytes: 1}
+	negativeWorkers := Limit{MemoryMiB: 512, Requested: -1, TaskBytes: 1}
+	for _, limit := range []Limit{overBudget, negativeWorkers} {
+		if _, err := Workers(limit); err == nil {
+			t.Fatal(limit)
 		}
 	}
 }

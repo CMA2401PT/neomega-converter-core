@@ -55,7 +55,7 @@ type bucket struct {
 type blockSpool struct {
 	ctx         context.Context
 	progress    func(Progress)
-	memoryBytes int64
+	memoryMiB   int
 	workers     int
 	file        *os.File
 	reader      *fileview.View
@@ -76,13 +76,13 @@ func newBlockSpool(j *job) (*blockSpool, error) {
 		return nil, err
 	}
 	s := &blockSpool{
-		ctx:         j.ctx,
-		progress:    j.report,
-		memoryBytes: int64(j.opts.MemoryMiB) * 1024 * 1024,
-		workers:     j.opts.Workers,
-		file:        file,
-		buckets:     map[bucketPos]*bucket{},
-		highY:       maxWorldY,
+		ctx:       j.ctx,
+		progress:  j.report,
+		memoryMiB: j.opts.MemoryMiB,
+		workers:   j.opts.Workers,
+		file:      file,
+		buckets:   map[bucketPos]*bucket{},
+		highY:     maxWorldY,
 	}
 	s.writer = bufio.NewWriterSize(file, 1024*1024)
 	// BestSpeed 是合法级别，flate 不会在这里返回错误。
@@ -211,7 +211,7 @@ func (s *blockSpool) seal(reserveBytes int64) (*fileview.View, error) {
 	if err := s.writer.Flush(); err != nil {
 		return nil, err
 	}
-	view, err := fileview.Open(s.file, max(0, s.memoryBytes-reserveBytes))
+	view, err := fileview.Open(s.file, max(0, int64(s.memoryMiB)*1024*1024-reserveBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +253,12 @@ func (s *blockSpool) writeWorld(dir, name string, spawn [3]int32) (int, error) {
 		}
 		return int(a.x - b.x)
 	})
-	workers, err := pipeline.Workers(int(s.memoryBytes/(1024*1024)), s.workers, view.MappedBytes, workerBytes)
+	workers, err := pipeline.Workers(pipeline.Limit{
+		MemoryMiB: s.memoryMiB,
+		Requested: s.workers,
+		Reserved:  view.MappedBytes,
+		TaskBytes: workerBytes,
+	})
 	if err != nil {
 		return 0, err
 	}

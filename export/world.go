@@ -82,9 +82,16 @@ func finalizedState(chunk *cellerbedrock.Chunk) int32 {
 	}
 }
 
+// chunkTaskBytes 是一根柱子在任务内转换、编码和压缩的工作区估算。
+const chunkTaskBytes = 64 * 1024 * 1024
+
 func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options ConvertOptions) (report Report, err error) {
 	// 源扫描与目标写入各有唯一所有者，转换、NBT 编码和压缩在独立任务中执行。
-	workers, err := pipeline.Workers(options.MemoryMiB, options.Workers, 0, 64*1024*1024)
+	workers, err := pipeline.Workers(pipeline.Limit{
+		MemoryMiB: options.MemoryMiB,
+		Requested: options.Workers,
+		TaskBytes: chunkTaskBytes,
+	})
 	if err != nil {
 		return report, err
 	}
@@ -169,6 +176,9 @@ func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options
 			})
 		},
 		func(ctx context.Context, input bedrockInput) (javaOutput, error) {
+			if input.skipped {
+				return javaOutput{skipped: true}, nil
+			}
 			return encodeBedrockChunk(ctx, input, version)
 		},
 		func(output javaOutput) error {
@@ -222,9 +232,12 @@ type bedrockInput struct {
 	chunk    *cellerbedrock.Chunk
 	actors   []nbt.Compound
 	actorErr error
-	skipped  bool
+	// skipped 表示这根柱子还没生成完成，任务直接交付空结果、写出侧只计数。
+	skipped bool
 }
 
+// javaOutput 是一根柱子转换后的结果；转换失败放进 convertErr 而不是作为错误返回，
+// 让写出侧按 Strict 决定是否提前结束，并照常统计诊断。
 type javaOutput struct {
 	pos                             celler.ChunkPos
 	dimension                       int32
@@ -232,18 +245,16 @@ type javaOutput struct {
 	entities                        *region.Record
 	diagnostics                     []converter.Diagnostic
 	dropped, tileCount, entityCount uint64
-	skipped                         bool
-	convertErr                      error
+	// skipped 由任务在未生成完成的柱子上置位，写出侧只计数、不写出。
+	skipped    bool
+	convertErr error
 }
 
 // encodeBedrockChunk 在任务内完成转换和压缩；只有轻量诊断和压缩记录交给写入者。
 func encodeBedrockChunk(ctx context.Context, input bedrockInput, version int32) (javaOutput, error) {
-	out := javaOutput{pos: input.chunk.Pos, dimension: input.chunk.Dimension, skipped: input.skipped}
+	out := javaOutput{pos: input.chunk.Pos, dimension: input.chunk.Dimension}
 	if err := ctx.Err(); err != nil {
 		return out, err
-	}
-	if input.skipped {
-		return out, nil
 	}
 	chunk, err := be2je.ConvertChunkWithActors(input.chunk, input.actors)
 	if err != nil {
