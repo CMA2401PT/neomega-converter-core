@@ -2,7 +2,7 @@
 
 本模块在 Bedrock 与 Java 之间转换方块、方块实体、物品、实体和存档：`be2je` 是 Bedrock → Java，`je2be` 是 Java → Bedrock。消费者入口和兼容性限制见 [README.md](README.md)，工作区命令与模块引用规则见 [根 AGENTS.md](../AGENTS.md)。
 
-转换结果由根包的 `ConvertedChunk`（Java 结果）和 `BedrockChunk`（Bedrock 结果）保存。`be2je` 先转换基础调色板，再应用单格方块实体规则，最后合并第二层水；`adapt` 缓存整根转换结果，`export` 负责 Java 存档写出。
+转换结果由根包的 `ConvertedChunk`（Java 结果）和 `BedrockChunk`（Bedrock 结果）保存。`be2je` 先转换基础调色板，再应用单格方块实体规则，最后合并第二层水；`adapt` 缓存整根转换结果，`export` 负责 Java 存档写出。`structure` 流式读取 schem、schematic、litematic、nbt 并写成 Java 主世界；mcstructure 保留原生双层状态写成 Bedrock，mcworld 解压为原生目录。大数组通过 NBT override 逐段接收并压缩暂存，禁止先分配完整体积数组或全图区块集合。
 
 ## 边界与变更约束
 
@@ -26,6 +26,7 @@
 | 方块实体要变成 Java 实体 | 展示框 | `be2je/blockentities/<子包>`，在 `Result.Entity` 里返回 |
 | 普通实体 | 生物、盔甲架、掉落物 | `be2je/actors` |
 | 世界元数据、存档写出 | `level.dat`、region、PostProcessing 名单 | `export/` |
+| 结构文件落成原生世界 | schem、schematic、litematic、nbt、mcstructure、mcworld | `structure/` |
 
 新增或修改 NBT 相关的转换时，同时更新对应目录的 `NBT.md`：写清源字段、目标字段
 和降级行为。规则子包的文档就在子包根目录，物品、实体、区块和 level.dat 分别在

@@ -26,6 +26,7 @@ adapt.NewConverted(read, opts)        按坐标读取 Bedrock 柱子 → 缓存�
 export.ToJavaChunk / ToJavaEntities    ConvertedChunk → Java 区块 / Java 实体记录
 export.ConvertLevel(level)             Bedrock level.dat → Java level.dat
 export.ConvertWorld(src, dst, opts)    Bedrock 存档 → Java 存档，不跑 fixer
+structure.ConvertFile(ctx, input, output)  结构文件 → 原生 Java／Bedrock 存档目录；拒绝覆盖非空目录
 
 # Java → Bedrock
 je2be.ConvertChunk(chunk)              Java 整根柱子 → BedrockChunk, err
@@ -201,9 +202,9 @@ ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict, IncludeUnfinished}) �
 写出的 Java 区块：
 
 ```text
-ToJavaChunk(ConvertedChunk, 4189) → cellerjava.Chunk
+ToJavaChunk(ConvertedChunk, 4189, 可选 [2]int32{最低section, 最高section}) → cellerjava.Chunk
   Status=minecraft:full，yPos 为维度最低 section，isLightOn=0，Heightmaps 为空
-  超出目标高度的 section 丢弃（主世界 -4..19，下界和末地 0..15）
+  默认超出目标高度的 section 丢弃（主世界 -4..19，下界和末地 0..15）；显式范围用于扩展高度世界
   waterlogged 原样写出；Java 不能含水的方块上的 waterlogged，游戏加载时会丢掉
 ToJavaEntities(ConvertedChunk, 4189) → {DataVersion, Position, Entities} 或 nil（没有实体）
 ConvertLevel(Level, 4189) → (level.dat, LevelReport, err)
@@ -218,6 +219,27 @@ ConvertLevel(Level, 4189) → (level.dat, LevelReport, err)
 ```
 
 没有在游戏里验证的：空 Heightmaps 和 `isLightOn=0` 是否让游戏重算高度图和光照，PostProcessing 是否按预期重算形状，`level.dat` 能否直接打开。
+
+## 结构文件写成原生存档
+
+`structure.ConvertFile(ctx, input, output)` 将没有区块索引的结构转成可以随机读取的世界。它直接从解压流接收 NBT 数组，把连续相同值合并为游程，再按小片区重排并写出区块。游程就是“值及其连续重复次数”。整个过程不创建与结构体积等大的数组，也不同时保留全图区块。
+
+| 输入 | 输出 | 数据处理 |
+|---|---|---|
+| `.schem` | Java | Sponge v1／v2／v3 的调色板与变长索引 |
+| `.schematic` | Java | Alpha 数字 ID、Data、可选 AddBlocks，直接查 Java 映射 |
+| `.litematic` | Java | v4–v7，多区域、负尺寸和跨 long 打包索引 |
+| `.nbt` | Java | 原版结构模板的 palette／palettes、blocks、entities |
+| `.mcstructure` | Bedrock | 保留双层方块、条目版本、方块实体与普通实体 |
+| `.mcworld` | Bedrock | 逐条解压原生世界包，不翻译其中的数据库 |
+
+`output` 为空时，存档放在源文件旁去掉最后一个扩展名的同名文件夹，例如 `城堡.schem` → `城堡/`。非空目标目录返回错误。转换在相邻临时目录完成，成功后才发布目标目录；失败或取消会清理暂存内容。
+
+数组可能出现在尺寸和调色板之前，所以解析时先用固定缓冲接收并压缩暂存，元数据齐全后再消费。空间重排的总缓冲为 8 MiB，每次只组装一个 128×128 水平片区，最多 64 根区块柱。内存还包括调色板、实体 NBT、片区索引和当前片区的区块，因此不是固定的进程内存上限。临时数据与输出位于同一磁盘，性能测试应把源文件和输出都放在 SSD。
+
+Java 输出使用 DataVersion 4189、空超平坦主世界和 plains 群系；普通实体写入独立 entities region。高度超出默认范围时整体平移。结构高于 384 格时附带 Java 1.21.4 的扩展高度数据包，支持最多 2096 格。Bedrock 保持原生主世界高度，高于 384 格时报错。位置、区域覆盖顺序及 NBT 保留范围见 [structure/NBT.md](structure/NBT.md)。
+
+这是结构数据落盘能力，不是 Java 历史 NBT 的完整版本升级器。方块实体和物品的历史字段保留原样，游戏中的旧实体兼容性与扩展高度世界仍需实际验证。浏览器复用本入口生成的世界；邻接修复由浏览应用按需组合，不写回结构源文件。
 
 ## 转换源区块
 
@@ -280,6 +302,7 @@ section 解码失败通过 `error` 返回。
 
 浏览或区域导出通常只需要一部分柱子。
 `adapt.NewConverted` 接收一个绑定来源和维度的 Bedrock 读取回调，按坐标转换并缓存结果。
+第三个可选参数 `ReadActors` 读取 digp/actorprefix 中与地形分开的普通实体；读取失败记入 `nbt_error`，地形继续转换。
 `Chunk(ctx, pos)` 返回只读共享的 `ConvertedChunk`；缺失柱子返回 `nil, nil`。
 源回调用 `fs.ErrNotExist` 表达缺失，支持包装后的错误。
 

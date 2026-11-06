@@ -14,10 +14,14 @@ const DataVersion int32 = 4189
 
 // 目标状态表对应 Java 1.21.4，区块、实体和世界元数据必须使用同一版本。
 
-func ToJavaChunk(chunk *converter.ConvertedChunk, dataVersion int32) (*cellerjava.Chunk, error) {
+// ToJavaChunk 按目标维度写出柱子；height 可提供自定义维度的闭区间 section 范围。
+func ToJavaChunk(chunk *converter.ConvertedChunk, dataVersion int32, height ...[2]int32) (*cellerjava.Chunk, error) {
 	// 写出层只补加载所需的容器字段，不改变转换产生的方块状态。
 	result := cellerjava.NewChunk(chunk.Pos, dataVersion)
 	low, high := sectionBounds(chunk.Dimension)
+	if len(height) > 0 {
+		low, high = height[0][0], height[0][1]
+	}
 	ys := make([]int32, 0, len(chunk.Sections))
 	for y := range chunk.Sections {
 		if y >= low && y <= high {

@@ -9,6 +9,7 @@ import (
 	cellerbedrock "celler/bedrock"
 	"neomega-converter-core"
 	"neomega-converter-core/be2je"
+	nbt "neomega-nbt/presets/v1"
 )
 
 type ChunkSource interface {
@@ -17,6 +18,9 @@ type ChunkSource interface {
 }
 
 type ReadChunk func(context.Context, celler.ChunkPos) (*cellerbedrock.Chunk, error)
+
+// ReadActors 读取与地形分开存储的 digp/actorprefix 实体。
+type ReadActors func(context.Context, celler.ChunkPos) ([]nbt.Compound, error)
 
 // 回调绑定一个来源和维度，缺失沿用 celler 的 fs.ErrNotExist。
 // 不同坐标可能并发读取，回调负责底层句柄的并发与关闭，并在返回后保持记录只读。
@@ -31,7 +35,7 @@ type Converted struct {
 	cache *CachedSource
 }
 
-func NewConverted(read ReadChunk, options Options) *Converted {
+func NewConverted(read ReadChunk, options Options, actors ...ReadActors) *Converted {
 	// 来源内容在实例存活期间保持稳定；重新打开或修改来源后创建新实例。
 	load := func(
 		ctx context.Context,
@@ -47,7 +51,19 @@ func NewConverted(read ReadChunk, options Options) *Converted {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		return be2je.ConvertChunk(raw)
+		var extra []nbt.Compound
+		var actorErr error
+		if len(actors) > 0 {
+			extra, actorErr = actors[0](ctx, pos)
+		}
+		converted, err := be2je.ConvertChunkWithActors(raw, extra)
+		if err != nil {
+			return nil, err
+		}
+		if actorErr != nil {
+			converted.Diagnostics = append(converted.Diagnostics, converter.Diagnostic{Kind: converter.NBTError, Err: actorErr})
+		}
+		return converted, nil
 	}
 	return &Converted{cache: NewCachedSource(options, load)}
 }
