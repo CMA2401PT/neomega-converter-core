@@ -1,4 +1,6 @@
-package export
+// Package javaout 把 converter.JavaChunk 写成 Java 1.21.4 的原生记录。
+// 一根 Java 柱子在存档里长什么样，只由这里决定；Bedrock 存档转换和结构文件转换都经过它。
+package javaout
 
 import (
 	"sort"
@@ -10,18 +12,45 @@ import (
 	nbt "neomega-nbt/presets/v1"
 )
 
-const DataVersion int32 = 4189
-
 // 目标状态表对应 Java 1.21.4，区块、实体和世界元数据必须使用同一版本。
+const (
+	DataVersion int32 = 4189
+	VersionName       = "1.21.4"
+)
 
-// ToJavaChunk 按目标维度写出柱子；height 可提供自定义维度的闭区间 section 范围。
-func ToJavaChunk(chunk *converter.ConvertedChunk, dataVersion int32, height ...[2]int32) (*cellerjava.Chunk, error) {
-	// 写出层只补加载所需的容器字段，不改变转换产生的方块状态。
-	result := cellerjava.NewChunk(chunk.Pos, dataVersion)
-	low, high := sectionBounds(chunk.Dimension)
-	if len(height) > 0 {
-		low, high = height[0][0], height[0][1]
+// Height 是写出的 section 闭区间。Low 同时是区块的 yPos，PostProcessing 的下标也从它算起。
+type Height struct {
+	Low, High int32
+}
+
+// DimensionHeight 返回原版维度的建筑高度：主世界 -4..19，下界和末地 0..15。
+// 源世界可能有更高的柱子，超出部分在写出时丢弃。
+func DimensionHeight(dimension int32) Height {
+	if dimension == 0 {
+		return Height{Low: -4, High: 19}
 	}
+	return Height{Low: 0, High: 15}
+}
+
+// Dimension 把 Bedrock 的维度编号映射为 Java 的维度目录。
+// 本仓库的中间结果统一使用 Bedrock 编号 0/1/2。
+func Dimension(dimension int32) (cellerjava.Dimension, bool) {
+	switch dimension {
+	case 0:
+		return cellerjava.Overworld, true
+	case 1:
+		return cellerjava.Nether, true
+	case 2:
+		return cellerjava.End, true
+	default:
+		return "", false
+	}
+}
+
+// Chunk 按 height 写出柱子，只补加载所需的容器字段，不改变方块状态。
+func Chunk(chunk *converter.JavaChunk, height Height) (*cellerjava.Chunk, error) {
+	low, high := height.Low, height.High
+	result := cellerjava.NewChunk(chunk.Pos, DataVersion)
 	ys := make([]int32, 0, len(chunk.Sections))
 	for y := range chunk.Sections {
 		if y >= low && y <= high {
@@ -29,7 +58,7 @@ func ToJavaChunk(chunk *converter.ConvertedChunk, dataVersion int32, height ...[
 		}
 	}
 	sort.Slice(ys, func(i, j int) bool { return ys[i] < ys[j] })
-	// Java 按维度最低 section 解释列表下标，缺失的 section 也必须保留空列表占位。
+	// Java 按最低 section 解释列表下标，缺失的 section 也必须保留空列表占位。
 	post := make([][]int16, high-low+1)
 	for i := range post {
 		post[i] = []int16{}
@@ -89,26 +118,4 @@ func needsShapeUpdate(name string) bool {
 		name == "glass_pane" || strings.HasSuffix(name, "_stained_glass_pane") || name == "iron_bars" ||
 		strings.HasSuffix(name, "_stairs") || strings.HasSuffix(name, "_wall") ||
 		name == "redstone_wire" || name == "tripwire" || name == "chorus_plant"
-}
-
-func sectionBounds(dimension int32) (int32, int32) {
-	// 目标维度的建筑高度决定可保留的 section，源世界可能包含更高的柱子。
-	if dimension == 0 {
-		return -4, 19
-	}
-	return 0, 15
-}
-
-func JavaDimension(dimension int32) (cellerjava.Dimension, bool) {
-	// Bedrock 的编号与 Java 目录名不同，映射集中在写出边界。
-	switch dimension {
-	case 0:
-		return cellerjava.Overworld, true
-	case 1:
-		return cellerjava.Nether, true
-	case 2:
-		return cellerjava.End, true
-	default:
-		return "", false
-	}
 }

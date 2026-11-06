@@ -1,6 +1,6 @@
 # Java → Bedrock 的 NBT 转换总览
 
-`java/` 是反方向：源是 Java NBT，目标是 Bedrock。方块状态经 `neomega-blocks` 的
+`je2be/` 是反方向：源是 Java NBT，目标是 Bedrock。方块状态经 `neomega-blocks` 的
 `ConvertFromJava` 转成 NEMC/Bedrock 状态，物品、方块实体、实体和 `level.dat` 由
 本目录的规则处理。
 
@@ -20,6 +20,7 @@
 | 物品 | `id`、`count`、`components` | [items](items/NBT.md) |
 | 普通实体 | `id`、`Pos`、`Rotation`、`item`、`equipment` 等 | [actors](actors/NBT.md) |
 | level.dat | `Data` 里的世界字段 | [export](export/NBT.md) |
+| 区块记录 | subchunk、方块实体、群系、实体 | [bedrockout](../bedrockout/NBT.md) |
 | 箱子 | `Items`、`CustomName`、`LootTable`、`type` | [箱子](blockentities/chest/NBT.md) |
 | 熔炉 | `Items`、`lit_time_remaining` 等 | [熔炉](blockentities/furnace/NBT.md) |
 | 旗帜 | `patterns`、方块颜色 | [旗帜](blockentities/banner/NBT.md) |
@@ -40,10 +41,6 @@
 
 ## 写出
 
-`je2be/export` 写 Bedrock 存档：subchunk、`0x31` 方块实体、`Data3D` 群系、
-`digp`/`actorprefix` 实体、`0x2C`/`0x36` 记录和 `level.dat`。
-群系按目标维度补齐到 24（主世界）或 16（下界/末地）段。
-
-`EncodeChunk` 将这些字段编码成独占的原生记录，不操作数据库，因此可并行调用。`WriteChunk` 将同一柱的地形和普通实体原子提交到一个 LevelDB batch。整图转换将记录按源顺序合并为有界批次，再交给单个数据库写入者；序列化后的 NBT 标签类型和实体键保持不变。
+`BedrockChunk` 由 [bedrockout](../bedrockout/NBT.md) 编码成数据库记录，`je2be/export` 把读源、转换和批量提交接成整图转换，并转换 `level.dat`。
 
 新建目标可使用 `ConvertOptions.NewWorld` 跳过清理旧区块记录的扫描。默认模式保留替换语义。`MemoryMiB`、`Workers` 和 `Context` 控制预算、任务上限和取消；详细生命周期见模块 README。

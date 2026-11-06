@@ -28,6 +28,20 @@ func openBedrock(t *testing.T) *cellerbedrock.World {
 	return world
 }
 
+func openJava(t *testing.T) *cellerjava.World {
+	t.Helper()
+	world, err := cellerjava.OpenDirectory(t.TempDir(), cellerjava.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := world.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return world
+}
+
 func sourceChunk(t *testing.T, pos celler.ChunkPos, dim int32, ys ...int32) *cellerbedrock.Chunk {
 	t.Helper()
 	chunk := cellerbedrock.NewChunk(pos, dim)

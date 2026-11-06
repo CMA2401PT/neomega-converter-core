@@ -2,7 +2,9 @@
 
 本模块在 Bedrock 与 Java 之间转换方块、方块实体、物品、实体和存档：`be2je` 是 Bedrock → Java，`je2be` 是 Java → Bedrock。消费者入口和兼容性限制见 [README.md](README.md)，工作区命令与模块引用规则见 [根 AGENTS.md](../AGENTS.md)。
 
-转换结果由根包的 `ConvertedChunk`（Java 结果）和 `BedrockChunk`（Bedrock 结果）保存。`be2je` 先转换基础调色板，再应用单格方块实体规则，最后合并第二层水；`adapt` 缓存整根转换结果，`export` 负责 Java 存档写出。`structure` 流式读取 schem、schematic、litematic、nbt 并写成 Java 主世界；mcstructure 保留原生双层状态写成 Bedrock，mcworld 解压为原生目录。大数组通过 NBT override 逐段接收并压缩暂存，禁止先分配完整体积数组或全图区块集合。
+所有转换都是三段：读源并得到目标版本的中间结果，再写成原生记录。中间结果是根包的 `JavaChunk` 和 `BedrockChunk`，各包的分工和概念图见 [README 的整体结构](README.md#整体结构)。
+
+`be2je` 先转换基础调色板，再应用单格方块实体规则，最后合并第二层水；`je2be` 与之对称。`javaout` 和 `bedrockout` 是各版本唯一的写出点，`be2je/export`、`je2be/export` 只把读源、翻译和写出接成整图转换。`adapt` 缓存按坐标转换的 `JavaChunk`。`structure` 流式读取 schem、schematic、litematic、nbt 构造 `JavaChunk`；mcstructure 保留原生双层状态构造 `BedrockChunk`，mcworld 解压为原生目录。大数组通过 NBT override 逐段接收并压缩暂存，禁止先分配完整体积数组或全图区块集合。
 
 ## 边界与变更约束
 
@@ -25,12 +27,16 @@
 | 生物群系 | 数字 id 到 Java 名、Data3D/2D | `be2je.ConvertChunk` 的群系合并 |
 | 方块实体要变成 Java 实体 | 展示框 | `be2je/blockentities/<子包>`，在 `Result.Entity` 里返回 |
 | 普通实体 | 生物、盔甲架、掉落物 | `be2je/actors` |
-| 世界元数据、存档写出 | `level.dat`、region、PostProcessing 名单 | `export/` |
-| 结构文件落成原生世界 | schem、schematic、litematic、nbt、mcstructure、mcworld | `structure/` |
+| 柱子写成 Java 记录 | 区块字段、高度范围、PostProcessing 名单、Java 新世界的 `level.dat` | `javaout/` |
+| 柱子写成 Bedrock 记录 | subchunk 版本、群系补齐、批次提交、`level.dat` 版本字段 | `bedrockout/` |
+| 两版 `level.dat` 之间的字段对应 | 出生点、时间、游戏规则、平坦世界 | `be2je/export/level.go`、`je2be/export/level.go` |
+| 整图转换的调度与报告 | 跳过未完成柱子、严格模式、诊断汇总 | `be2je/export/`、`je2be/export/` |
+| 结构文件落成原生世界 | schem、schematic、litematic、nbt、mcstructure、mcworld | `structure/`，写出复用 `javaout` 或 `bedrockout` |
 
 新增或修改 NBT 相关的转换时，同时更新对应目录的 `NBT.md`：写清源字段、目标字段
 和降级行为。规则子包的文档就在子包根目录，物品、实体、区块和 level.dat 分别在
-`be2je/items/NBT.md`、`be2je/actors/NBT.md`、`be2je/NBT.md`、`export/NBT.md`。
+`be2je/items/NBT.md`、`be2je/actors/NBT.md`、`be2je/NBT.md`、`be2je/export/NBT.md`。
+写出格式在 `javaout/NBT.md` 和 `bedrockout/NBT.md`。
 Java → Bedrock 方向的入口与差异见 `je2be/NBT.md`。
 
 方块实体规则通过 `blockentities.Input` 读取基础状态和源 NBT。

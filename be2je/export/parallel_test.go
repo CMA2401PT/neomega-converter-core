@@ -10,7 +10,8 @@ import (
 	"celler/bedrock"
 	java "celler/java"
 	"celler/layer_storage"
-	forward "neomega-converter-core/export"
+	forward "neomega-converter-core/be2je/export"
+	"neomega-converter-core/javaout"
 	reverse "neomega-converter-core/je2be/export"
 	nbt "neomega-nbt/presets/v1"
 )
@@ -63,7 +64,7 @@ func TestParallelWorldConversionsPreserveContents(t *testing.T) {
 		t.Fatal(forwardReports)
 	}
 	for _, dim := range dimensions {
-		javaDim, _ := forward.JavaDimension(dim)
+		javaDim, _ := javaout.Dimension(dim)
 		for _, pos := range positions {
 			a, err := javaWorlds[0].ReadChunk(javaDim, pos)
 			if err != nil {

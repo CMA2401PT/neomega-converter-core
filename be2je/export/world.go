@@ -6,16 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"time"
 
 	"celler"
 	cellerbedrock "celler/bedrock"
 	cellerjava "celler/java"
-	"celler/java/region"
 	"neomega-blocks/ir"
 	"neomega-converter-core"
 	"neomega-converter-core/be2je"
 	"neomega-converter-core/internal/pipeline"
+	"neomega-converter-core/javaout"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -25,10 +24,9 @@ type ConvertOptions struct {
 	// MemoryMiB 默认 512、至少 64；Workers 为零时自动选择，预算按每任务 64 MiB 估算。
 	MemoryMiB int
 	Workers   int
-	// 空维度列表选择主世界；版本零值选择本包目标版本，Strict 只控制转换失败的柱子。
-	Dimensions  []int32
-	Strict      bool
-	DataVersion int32
+	// 空维度列表选择主世界；Strict 只控制转换失败的柱子。
+	Dimensions []int32
+	Strict     bool
 	// IncludeUnfinished 也转换尚未生成完成的柱子；默认跳过，和 mcconv 一致。
 	IncludeUnfinished bool
 }
@@ -110,16 +108,12 @@ func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options
 	}
 	selected := make(map[int32]cellerjava.Dimension)
 	for _, dimension := range dims {
-		dim, ok := JavaDimension(dimension)
+		dim, ok := javaout.Dimension(dimension)
 		if !ok {
 			return report, fmt.Errorf("unsupported Bedrock dimension %d", dimension)
 		}
 		selected[dimension] = dim
 		report.Chunks[dimension], report.DroppedSections[dimension] = 0, 0
-	}
-	version := options.DataVersion
-	if version == 0 {
-		version = DataVersion
 	}
 	unknown := make(map[ir.IRBlock]uint64)
 	unknownItems := make(map[string]uint64)
@@ -179,7 +173,7 @@ func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options
 			if input.skipped {
 				return javaOutput{skipped: true}, nil
 			}
-			return encodeBedrockChunk(ctx, input, version)
+			return encodeBedrockChunk(ctx, input)
 		},
 		func(output javaOutput) error {
 			if output.skipped {
@@ -209,17 +203,11 @@ func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options
 				}
 				return nil
 			}
-			dim := selected[output.dimension]
-			if err := target.WriteRaw(dim, cellerjava.Terrain, output.pos, output.terrain); err != nil {
+			if err := output.records.Write(target, selected[output.dimension], output.pos); err != nil {
 				return err
 			}
-			if output.entities != nil {
-				if err := target.WriteRaw(dim, cellerjava.Entities, output.pos, *output.entities); err != nil {
-					return err
-				}
-			}
-			report.Entities += output.entityCount
-			report.BlockEntities += output.tileCount
+			report.Entities += uint64(output.records.EntityCount)
+			report.BlockEntities += uint64(output.records.BlockEntityCount)
 			report.Chunks[output.dimension]++
 			return nil
 		},
@@ -239,19 +227,18 @@ type bedrockInput struct {
 // javaOutput 是一根柱子转换后的结果；转换失败放进 convertErr 而不是作为错误返回，
 // 让写出侧按 Strict 决定是否提前结束，并照常统计诊断。
 type javaOutput struct {
-	pos                             celler.ChunkPos
-	dimension                       int32
-	terrain                         region.Record
-	entities                        *region.Record
-	diagnostics                     []converter.Diagnostic
-	dropped, tileCount, entityCount uint64
+	pos         celler.ChunkPos
+	dimension   int32
+	records     javaout.Records
+	diagnostics []converter.Diagnostic
+	dropped     uint64
 	// skipped 由任务在未生成完成的柱子上置位，写出侧只计数、不写出。
 	skipped    bool
 	convertErr error
 }
 
-// encodeBedrockChunk 在任务内完成转换和压缩；只有轻量诊断和压缩记录交给写入者。
-func encodeBedrockChunk(ctx context.Context, input bedrockInput, version int32) (javaOutput, error) {
+// encodeBedrockChunk 在任务内完成转换、编码和压缩；只有轻量诊断和压缩记录交给写入者。
+func encodeBedrockChunk(ctx context.Context, input bedrockInput) (javaOutput, error) {
 	out := javaOutput{pos: input.chunk.Pos, dimension: input.chunk.Dimension}
 	if err := ctx.Err(); err != nil {
 		return out, err
@@ -265,38 +252,13 @@ func encodeBedrockChunk(ctx context.Context, input bedrockInput, version int32) 
 		chunk.Diagnostics = append(chunk.Diagnostics, converter.Diagnostic{Kind: converter.NBTError, Err: input.actorErr})
 	}
 	out.diagnostics = chunk.Diagnostics
-	low, high := sectionBounds(chunk.Dimension)
+	height := javaout.DimensionHeight(chunk.Dimension)
 	for y := range chunk.Sections {
-		if y < low || y > high {
+		if y < height.Low || y > height.High {
 			out.dropped++
 		}
 	}
-	terrain, err := ToJavaChunk(chunk, version)
-	if err != nil {
-		out.convertErr = err
-		return out, nil
-	}
-	data, err := terrain.Encode()
-	if err != nil {
-		return out, err
-	}
-	out.terrain, err = region.Compress(data, uint32(time.Now().Unix()))
-	if err != nil {
-		return out, err
-	}
-	if document := ToJavaEntities(chunk, version); document != nil {
-		data, err := nbt.EncodeDocument(*document, nbt.EncodingBigEndian)
-		if err != nil {
-			return out, err
-		}
-		record, err := region.Compress(data, uint32(time.Now().Unix()))
-		if err != nil {
-			return out, err
-		}
-		out.entities = &record
-		out.entityCount = uint64(len(chunk.Entities))
-	}
-	entities, _ := nbt.Compounds(terrain.NBT.Value["block_entities"])
-	out.tileCount = uint64(len(entities))
+	// 编码失败只影响这一根柱子，和转换失败一样交给写出侧按 Strict 处理。
+	out.records, out.convertErr = javaout.Encode(chunk, height)
 	return out, nil
 }

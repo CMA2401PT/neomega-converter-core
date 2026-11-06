@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	cellerbedrock "celler/bedrock"
+	"neomega-converter-core/javaout"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -17,12 +18,12 @@ func TestConvertLevel(t *testing.T) {
 		"rainLevel": float32(0.5), "lightningLevel": float32(0), "rainTime": int32(100), "lightningTime": int32(200),
 		"keepinventory": int8(1), "randomtickspeed": int32(5),
 	}}}
-	document, report, err := ConvertLevel(level, DataVersion)
-	if err != nil || len(report.DefaultedFields) != 0 {
-		t.Fatalf("report=%v err=%v", report, err)
+	document, report := ConvertLevel(level)
+	if len(report.DefaultedFields) != 0 {
+		t.Fatalf("report=%v", report)
 	}
 	world := openJava(t)
-	if err = world.WriteLevel(document); err != nil {
+	if err := world.WriteLevel(document); err != nil {
 		t.Fatal(err)
 	}
 	got, err := world.ReadLevel()
@@ -35,8 +36,8 @@ func TestConvertLevel(t *testing.T) {
 		"GameType": int32(1), "Difficulty": int8(3), "Time": int64(999), "DayTime": int64(12345), "allowCommands": int8(1),
 		"hardcore": int8(1), "LastPlayed": int64(1700000000000), "SpawnAngle": float32(90),
 		"raining": int8(1), "thundering": int8(0), "rainTime": int32(100), "thunderTime": int32(200),
-		"DataVersion": DataVersion, "version": int32(19133), "initialized": int8(1),
-		"Version":   nbt.Compound{"Id": DataVersion, "Name": "1.21.4", "Series": "main", "Snapshot": int8(0)},
+		"DataVersion": javaout.DataVersion, "version": int32(19133), "initialized": int8(1),
+		"Version":   nbt.Compound{"Id": javaout.DataVersion, "Name": "1.21.4", "Series": "main", "Snapshot": int8(0)},
 		"DataPacks": nbt.Compound{"Enabled": []string{"vanilla"}, "Disabled": []string{}},
 	}) {
 		if !reflect.DeepEqual(data[key], want) {
@@ -74,10 +75,7 @@ func TestConvertLevel(t *testing.T) {
 }
 
 func TestConvertLevelDefaults(t *testing.T) {
-	document, report, err := ConvertLevel(cellerbedrock.Level{NBT: nbt.Document{Value: nbt.Compound{"SpawnX": "bad"}}}, DataVersion)
-	if err != nil {
-		t.Fatal(err)
-	}
+	document, report := ConvertLevel(cellerbedrock.Level{NBT: nbt.Document{Value: nbt.Compound{"SpawnX": "bad"}}})
 	wantFields := []string{
 		"LevelName", "SpawnX", "SpawnY", "SpawnZ", "SpawnRotation", "RandomSeed", "GameType",
 		"Difficulty", "Time", "currentTick", "commandsAllowed", "LastPlayed", "rainTime", "lightningTime",
@@ -98,12 +96,9 @@ func TestConvertLevelDefaults(t *testing.T) {
 
 func TestConvertLevelFlat(t *testing.T) {
 	layers := `{"biome_id":1,"block_layers":[{"block_name":"minecraft:bedrock","count":1},{"block_name":"stone","count":2}]}`
-	document, _, err := ConvertLevel(cellerbedrock.Level{NBT: nbt.Document{Value: nbt.Compound{
+	document, _ := ConvertLevel(cellerbedrock.Level{NBT: nbt.Document{Value: nbt.Compound{
 		"Generator": int32(2), "FlatWorldLayers": layers,
-	}}}, DataVersion)
-	if err != nil {
-		t.Fatal(err)
-	}
+	}}})
 	data := document.Value["Data"].(nbt.Compound)
 	settings := data["WorldGenSettings"].(nbt.Compound)
 	overworld := settings["dimensions"].(nbt.Compound)["minecraft:overworld"].(nbt.Compound)

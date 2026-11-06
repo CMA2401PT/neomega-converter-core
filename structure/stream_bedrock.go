@@ -15,19 +15,15 @@ import (
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	converter "neomega-converter-core"
+	"neomega-converter-core/bedrockout"
 	"neomega-converter-core/internal/pipeline"
-	beexport "neomega-converter-core/je2be/export"
 	rawnbt "neomega-nbt"
 	goencode "neomega-nbt/encoder-go-object"
 	nbt "neomega-nbt/presets/v1"
 )
 
-const (
-	// 写入批次的上限：待写记录本身，加上提交时合并 batch 的副本，各占一份。
-	batchBytes = 8 * 1024 * 1024
-	// 单个片区展开双层方块、编码并压缩所需的工作区估算。
-	bucketWorkspaceBytes = 64 * 1024 * 1024
-)
+// bucketWorkspaceBytes 是单个片区展开双层方块、编码并压缩所需的工作区估算。
+const bucketWorkspaceBytes = 64 * 1024 * 1024
 
 // layerStreams 接收 block_indices 的两层数组，每层一个 numberStream。
 type layerStreams struct {
@@ -217,8 +213,8 @@ func convertMCStructure(j *job) error {
 		value["Pos"] = []float32{float32(pos[0]) + float32(h.Origin[0]), float32(pos[1]) + float32(h.Origin[1]), float32(pos[2]) + float32(h.Origin[2])}
 		sink.addEntity(value)
 	}
-	// 双层区块工作区预留 bucketWorkspaceBytes，写入批次与合并副本各留 batchBytes，其余才用于映射。
-	view, err := sink.seal(bucketWorkspaceBytes + 2*batchBytes)
+	// 双层区块工作区预留 bucketWorkspaceBytes，写入批次与合并副本各留 BatchBytes，其余才用于映射。
+	view, err := sink.seal(bucketWorkspaceBytes + 2*bedrockout.BatchBytes)
 	if err != nil {
 		return err
 	}
@@ -236,7 +232,7 @@ func convertMCStructure(j *job) error {
 	workers, err := pipeline.Workers(pipeline.Limit{
 		MemoryMiB: j.opts.MemoryMiB,
 		Requested: j.opts.Workers,
-		Reserved:  view.MappedBytes + 2*batchBytes,
+		Reserved:  view.MappedBytes + 2*bedrockout.BatchBytes,
 		TaskBytes: bucketWorkspaceBytes,
 	})
 	if err != nil {
@@ -253,7 +249,8 @@ func convertMCStructure(j *job) error {
 		return int(a.x - b.x)
 	})
 	// 实体 ID 按稳定片区顺序分配，各任务拿到自己的连续编号范围。
-	batches := &bedrockBatches{world: world, limit: batchBytes}
+	// 这里的坐标都还没写过，批次跳过旧记录清理。
+	batch := bedrockout.NewBatch(world, true)
 	done := int64(0)
 	j.report(Progress{Stage: "writing", Total: int64(len(positions))})
 	err = pipeline.Run(j.ctx, workers,
@@ -275,8 +272,10 @@ func convertMCStructure(j *job) error {
 			return sink.encodeBedrockBucket(ctx, current.pos, sink.buckets[current.pos], current.firstActorID, blocks, layerStride)
 		},
 		func(chunks []*bedrock.EncodedChunk) error {
-			if err := batches.add(chunks); err != nil {
-				return err
+			for _, chunk := range chunks {
+				if err := batch.Add(chunk, nil); err != nil {
+					return err
+				}
 			}
 			done++
 			j.report(Progress{Stage: "writing", Completed: done, Total: int64(len(positions))})
@@ -289,18 +288,19 @@ func convertMCStructure(j *job) error {
 	if err := j.ctx.Err(); err != nil {
 		return err
 	}
-	if err := batches.flush(); err != nil {
+	if err := batch.Flush(); err != nil {
 		return err
 	}
 	maximum := [3]int32{h.Origin[0] + h.Size[0], h.Origin[1] + h.Size[1], h.Origin[2] + h.Size[2]}
 	j.spawn = spawnPoint(h.Origin, maximum)
-	// Bedrock 世界只记录版本和出生点；lastOpenedWithVersion 让游戏按 1.21.50 的格式打开。
-	level := bedrock.Level{Version: 10, NBT: nbt.Document{Value: nbt.Compound{
-		"StorageVersion": int32(10), "lastOpenedWithVersion": []int32{1, 21, 50, 0}, "LevelName": j.name,
-		"SpawnX": j.spawn[0], "SpawnY": j.spawn[1], "SpawnZ": j.spawn[2], "GameType": int32(1),
-		"Generator": int32(2), "FlatWorldLayers": `{"biome_id":1,"block_layers":[]}`,
-	}}}
-	if err = world.WriteLevel(level); err != nil {
+	// 创造模式的虚空超平坦世界，只写名称和出生点，其余字段由游戏取默认值。
+	data := bedrockout.NewLevelData()
+	data["LevelName"] = j.name
+	data["SpawnX"], data["SpawnY"], data["SpawnZ"] = j.spawn[0], j.spawn[1], j.spawn[2]
+	data["GameType"] = int32(1)
+	data["Generator"] = int32(2)
+	data["FlatWorldLayers"] = `{"biome_id":1,"block_layers":[]}`
+	if err = world.WriteLevel(bedrockout.Level(data)); err != nil {
 		return err
 	}
 	if err = os.WriteFile(filepath.Join(j.output, "levelname.txt"), []byte(j.name), 0644); err != nil {
@@ -314,48 +314,6 @@ func convertMCStructure(j *job) error {
 type bucketTask struct {
 	pos          bucketPos
 	firstActorID int64
-}
-
-// bedrockBatches 把编码好的区块攒成批次原子提交。limit 是待写记录的上限；
-// 提交时数据库 batch 还会复制一份，所以预算要按两份预留。
-type bedrockBatches struct {
-	world   *bedrock.World
-	pending []*bedrock.EncodedChunk
-	size    int
-	limit   int
-}
-
-// add 把一批区块加入待写队列。超大单柱单独提交；普通批次在加入下一柱前检查大小。
-func (b *bedrockBatches) add(chunks []*bedrock.EncodedChunk) error {
-	for _, chunk := range chunks {
-		if b.size+chunk.Size() > b.limit {
-			if err := b.flush(); err != nil {
-				return err
-			}
-		}
-		b.pending = append(b.pending, chunk)
-		b.size += chunk.Size()
-		if b.size >= b.limit {
-			if err := b.flush(); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// flush 提交待写批次。这里的坐标都还没写过，所以跳过旧记录清理。
-func (b *bedrockBatches) flush() error {
-	if len(b.pending) == 0 {
-		return nil
-	}
-	if err := b.world.WriteChunks(b.pending, bedrock.WriteChunksOptions{NewWorld: true}); err != nil {
-		return err
-	}
-	clear(b.pending)
-	b.pending = b.pending[:0]
-	b.size = 0
-	return nil
 }
 
 // encodeBedrockBucket 独立展开一个片区的双层方块，编码完成后交付原生数据库记录。
@@ -416,7 +374,7 @@ func (sink *blockSpool) encodeBedrockBucket(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		encoded, err := beexport.EncodeChunk(chunk)
+		encoded, err := bedrockout.EncodeChunk(chunk)
 		if err != nil {
 			return nil, err
 		}

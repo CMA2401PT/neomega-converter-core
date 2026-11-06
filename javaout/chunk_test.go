@@ -1,4 +1,4 @@
-package export
+package javaout
 
 import (
 	"reflect"
@@ -26,15 +26,15 @@ func openJava(t *testing.T) *cellerjava.World {
 	return world
 }
 
-func converted(pos celler.ChunkPos, ys ...int32) *converter.ConvertedChunk {
-	result := &converter.ConvertedChunk{Pos: pos, Sections: make(map[int32]*converter.ConvertedSection)}
+func converted(pos celler.ChunkPos, ys ...int32) *converter.JavaChunk {
+	result := &converter.JavaChunk{Pos: pos, Sections: make(map[int32]*converter.JavaSection)}
 	for _, y := range ys {
-		result.Sections[y] = &converter.ConvertedSection{Blocks: layer_storage.MakePaletteStorage(ir.IRBlock("minecraft:air []"))}
+		result.Sections[y] = &converter.JavaSection{Blocks: layer_storage.MakePaletteStorage(ir.IRBlock("minecraft:air []"))}
 	}
 	return result
 }
 
-func TestToJavaChunkRoundTrip(t *testing.T) {
+func TestChunkRoundTrip(t *testing.T) {
 	source := converted(celler.ChunkPos{X: -2, Z: 3}, -5, -2, 0, 20)
 	source.Sections[-2].Blocks.Set(layer_storage.At(3, 4, 5), ir.IRBlock(`minecraft:oak_fence ["waterlogged"="true"]`).Tidy())
 	source.Sections[-2].Blocks.Set(layer_storage.At(1, 2, 3), "minecraft:torch []")
@@ -50,7 +50,7 @@ func TestToJavaChunkRoundTrip(t *testing.T) {
 		{Pos: pos, NBT: nbt.Compound{"id": "minecraft:chest", "x": pos.X, "y": pos.Y, "z": pos.Z, "Items": []nbt.Compound{}}},
 		{Pos: celler.BlockPos{Y: 320}, NBT: nbt.Compound{}},
 	}
-	chunk, err := ToJavaChunk(source, DataVersion)
+	chunk, err := Chunk(source, DimensionHeight(source.Dimension))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,11 +98,11 @@ func TestToJavaChunkRoundTrip(t *testing.T) {
 	}
 }
 
-func TestToJavaChunkMissingBottomSections(t *testing.T) {
+func TestChunkMissingBottomSections(t *testing.T) {
 	// 底部缺失时仍按主世界的 -4 起算，section 2 必须登记到下标 6。
 	source := converted(celler.ChunkPos{}, 2)
 	source.Sections[2].Blocks.Set(layer_storage.At(3, 4, 5), "minecraft:oak_fence []")
-	chunk, err := ToJavaChunk(source, DataVersion)
+	chunk, err := Chunk(source, DimensionHeight(source.Dimension))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestDimensionHeight(t *testing.T) {
 	for _, dim := range []int32{0, 1, 2} {
 		source := converted(celler.ChunkPos{}, -4, 0, 15, 19)
 		source.Dimension = dim
-		chunk, err := ToJavaChunk(source, DataVersion)
+		chunk, err := Chunk(source, DimensionHeight(source.Dimension))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -166,11 +166,11 @@ func TestDimensionHeight(t *testing.T) {
 		}
 	}
 	for dim, want := range map[int32]cellerjava.Dimension{0: cellerjava.Overworld, 1: cellerjava.Nether, 2: cellerjava.End} {
-		if got, ok := JavaDimension(dim); !ok || got != want {
+		if got, ok := Dimension(dim); !ok || got != want {
 			t.Fatalf("dim %d: %s %v", dim, got, ok)
 		}
 	}
-	if _, ok := JavaDimension(3); ok {
+	if _, ok := Dimension(3); ok {
 		t.Fatal("unknown dimension mapped")
 	}
 }

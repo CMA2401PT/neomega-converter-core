@@ -99,7 +99,7 @@ func ConvertSection(
 	dimension int32,
 	section *cellerbedrock.Section,
 	blockEntities []nbt.Compound,
-) *converter.ConvertedChunk {
+) *converter.JavaChunk {
 	// 已解码的数据直接进入阶段 1，实体的坐标范围仍由共用规则检查。
 	return convertSections(
 		pos,
@@ -109,17 +109,17 @@ func ConvertSection(
 	)
 }
 
-func ConvertChunk(src *cellerbedrock.Chunk) (*converter.ConvertedChunk, error) {
+func ConvertChunk(src *cellerbedrock.Chunk) (*converter.JavaChunk, error) {
 	return convertChunk(src, nil)
 }
 
 // ConvertChunkWithActors 追加调用方从 digp/actorprefix 取得的实体。
 // 0x32 记录仍由 ConvertChunk 自己读取。
-func ConvertChunkWithActors(src *cellerbedrock.Chunk, extra []nbt.Compound) (*converter.ConvertedChunk, error) {
+func ConvertChunkWithActors(src *cellerbedrock.Chunk, extra []nbt.Compound) (*converter.JavaChunk, error) {
 	return convertChunk(src, extra)
 }
 
-func convertChunk(src *cellerbedrock.Chunk, extra []nbt.Compound) (*converter.ConvertedChunk, error) {
+func convertChunk(src *cellerbedrock.Chunk, extra []nbt.Compound) (*converter.JavaChunk, error) {
 	// 解码完整成功后才进入转换，任一 section 损坏仍使整根柱子失败。
 	var sections []*cellerbedrock.Section
 	for _, y := range src.SectionYs() {
@@ -171,7 +171,7 @@ func chunkActors(src *cellerbedrock.Chunk) ([]nbt.Compound, error) {
 	return list, nil
 }
 
-func convertActors(result *converter.ConvertedChunk, list []nbt.Compound) {
+func convertActors(result *converter.JavaChunk, list []nbt.Compound) {
 	// 未知标识按名称合并计数；已知但跳过或数据不完整的实体不算错误。
 	unknown := make(map[string]int)
 	for _, source := range list {
@@ -203,12 +203,12 @@ func convertSections(
 	dimension int32,
 	sections []*cellerbedrock.Section,
 	entities []nbt.Compound,
-) *converter.ConvertedChunk {
+) *converter.JavaChunk {
 	// 两个公开入口共用调色板、实体和第二层水的顺序，避免单 section 行为漂移。
-	result := &converter.ConvertedChunk{
+	result := &converter.JavaChunk{
 		Pos:       pos,
 		Dimension: dimension,
-		Sections:  make(map[int32]*converter.ConvertedSection),
+		Sections:  make(map[int32]*converter.JavaSection),
 	}
 	cache := make(map[cellerbedrock.Block]blockResult)
 	convert := func(source cellerbedrock.Block) ir.IRBlock {
@@ -252,7 +252,7 @@ func convertSections(
 				result.Diagnostics[diagnostic].Count += counts[index]
 			}
 		}
-		result.Sections[y] = &converter.ConvertedSection{Blocks: blocks, Biomes: plainsBiomes}
+		result.Sections[y] = &converter.JavaSection{Blocks: blocks, Biomes: plainsBiomes}
 	}
 	entityCells := convertEntities(
 		entities,
@@ -271,7 +271,7 @@ func convertSections(
 
 func convertEntities(
 	entities []nbt.Compound,
-	result *converter.ConvertedChunk,
+	result *converter.JavaChunk,
 	sources map[int32]*cellerbedrock.Section,
 	cache map[cellerbedrock.Block]blockResult,
 ) map[int32]map[layer_storage.Position]bool {

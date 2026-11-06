@@ -71,10 +71,10 @@ func (c columns) place(x, y, z int32, block ir.IRBlock) {
 }
 
 // chunk 组装一根可写出的区块；没有方块、方块实体和实体时返回 nil。
-func (col *column) chunk(pos celler.ChunkPos) *converter.ConvertedChunk {
-	chunk := &converter.ConvertedChunk{
+func (col *column) chunk(pos celler.ChunkPos) *converter.JavaChunk {
+	chunk := &converter.JavaChunk{
 		Pos:           pos,
-		Sections:      map[int32]*converter.ConvertedSection{},
+		Sections:      map[int32]*converter.JavaSection{},
 		BlockEntities: col.blockEntities,
 		Entities:      col.entities,
 	}
@@ -82,7 +82,7 @@ func (col *column) chunk(pos celler.ChunkPos) *converter.ConvertedChunk {
 		if !hasNonAir(blocks) {
 			continue
 		}
-		chunk.Sections[y] = &converter.ConvertedSection{Blocks: blocks, Biomes: plainsBiomes}
+		chunk.Sections[y] = &converter.JavaSection{Blocks: blocks, Biomes: plainsBiomes}
 	}
 	if len(chunk.Sections) == 0 && len(chunk.BlockEntities) == 0 && len(chunk.Entities) == 0 {
 		return nil

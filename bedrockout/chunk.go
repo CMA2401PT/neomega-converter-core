@@ -1,5 +1,6 @@
-// Package export 把 Java → Bedrock 的中间结果写成 Bedrock 存档。
-package export
+// Package bedrockout 把 converter.BedrockChunk 写成 Bedrock 1.21.50 的原生记录。
+// 一根 Bedrock 柱子在数据库里长什么样，只由这里决定；Java 存档转换和 mcstructure 转换都经过它。
+package bedrockout
 
 import (
 	cellerbedrock "celler/bedrock"
@@ -84,7 +85,7 @@ func plainsPalette() *layer_storage.Palette[int32] {
 	return layer_storage.MakePaletteStorage(id)
 }
 
-// sectionBounds 与 Java→Bedrock 写出使用同一套目标高度。
+// sectionBounds 是原版维度的建筑高度：主世界 -4..19，下界和末地 0..15。
 func sectionBounds(dimension int32) (int32, int32) {
 	if dimension == 0 {
 		return -4, 19
@@ -92,7 +93,7 @@ func sectionBounds(dimension int32) (int32, int32) {
 	return 0, 15
 }
 
-// 目标 Bedrock 版本与区块记录版本。
+// 目标 Bedrock 版本的 section 与区块记录版本。
 const (
 	sectionVersion = 9
 	chunkVersion   = 42

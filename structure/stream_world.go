@@ -11,12 +11,11 @@ import (
 	"os"
 	"slices"
 
-	"celler/bedrock"
 	cellerjava "celler/java"
 	"neomega-blocks/ir"
-	"neomega-converter-core/export"
 	"neomega-converter-core/internal/fileview"
 	"neomega-converter-core/internal/pipeline"
+	"neomega-converter-core/javaout"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -276,16 +275,16 @@ func (s *blockSpool) writeWorld(dir, name string, spawn [3]int32) (int, error) {
 	return count, world.Commit()
 }
 
-// javaLevel 生成这次转换的 level.dat：空超平坦主世界，出生点就是结构顶面。
+// javaLevel 生成这次转换的 level.dat：创造模式的虚空超平坦主世界，出生点就是结构顶面。
 // 高出主世界的结构再写一份扩展高度的数据包。
 func javaLevel(dir, name string, spawn [3]int32, highY int32) (nbt.Document, error) {
-	level, _, err := export.ConvertLevel(bedrock.Level{NBT: nbt.Document{Value: nbt.Compound{
-		"LevelName": name, "SpawnX": spawn[0], "SpawnY": spawn[1], "SpawnZ": spawn[2],
-		"GameType": int32(1), "commandsAllowed": int8(1), "Generator": int32(2), "FlatWorldLayers": `{"biome_id":1,"block_layers":[]}`,
-	}}}, export.DataVersion)
-	if err != nil {
-		return nbt.Document{}, err
-	}
+	data := javaout.NewLevelData()
+	data["LevelName"] = name
+	data["SpawnX"], data["SpawnY"], data["SpawnZ"] = spawn[0], spawn[1], spawn[2]
+	data["GameType"] = int32(1)
+	data["allowCommands"] = int8(1)
+	data["WorldGenSettings"] = javaout.WorldGenSettings(0, true, javaout.FlatGenerator("minecraft:plains", nil))
+	level := javaout.Level(data)
 	if highY > maxWorldY {
 		if err := writeHeightPack(dir, &level, highY); err != nil {
 			return nbt.Document{}, err

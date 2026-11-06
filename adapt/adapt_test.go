@@ -38,7 +38,7 @@ func memoryRead(chunks map[celler.ChunkPos]*cellerbedrock.Chunk) ReadChunk {
 	}
 }
 
-func getChunk(t *testing.T, src ChunkSource, pos celler.ChunkPos) *converter.ConvertedChunk {
+func getChunk(t *testing.T, src ChunkSource, pos celler.ChunkPos) *converter.JavaChunk {
 	t.Helper()
 	chunk, err := src.Chunk(context.Background(), pos)
 	if err != nil || chunk == nil {

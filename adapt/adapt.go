@@ -14,7 +14,7 @@ import (
 
 type ChunkSource interface {
 	// 消费方只需按坐标取柱子；缺失返回 nil, nil，结果及其引用的数据共享只读。
-	Chunk(ctx context.Context, pos celler.ChunkPos) (*converter.ConvertedChunk, error)
+	Chunk(ctx context.Context, pos celler.ChunkPos) (*converter.JavaChunk, error)
 }
 
 type ReadChunk func(context.Context, celler.ChunkPos) (*cellerbedrock.Chunk, error)
@@ -40,7 +40,7 @@ func NewConverted(read ReadChunk, options Options, actors ...ReadActors) *Conver
 	load := func(
 		ctx context.Context,
 		pos celler.ChunkPos,
-	) (*converter.ConvertedChunk, error) {
+	) (*converter.JavaChunk, error) {
 		raw, err := read(ctx, pos)
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -68,7 +68,7 @@ func NewConverted(read ReadChunk, options Options, actors ...ReadActors) *Conver
 	return &Converted{cache: NewCachedSource(options, load)}
 }
 
-func (c *Converted) Chunk(ctx context.Context, pos celler.ChunkPos) (*converter.ConvertedChunk, error) {
+func (c *Converted) Chunk(ctx context.Context, pos celler.ChunkPos) (*converter.JavaChunk, error) {
 	// 单个等待者退出不取消其他调用者正在共用的读取和转换。
 	return c.cache.Chunk(ctx, pos)
 }

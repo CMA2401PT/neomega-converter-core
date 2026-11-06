@@ -1,4 +1,4 @@
-package export
+package javaout
 
 import (
 	"reflect"
@@ -12,9 +12,9 @@ import (
 	nbt "neomega-nbt/presets/v1"
 )
 
-func TestToJavaEntitiesRoundTrip(t *testing.T) {
+func TestEntitiesRoundTrip(t *testing.T) {
 	source := converted(celler.ChunkPos{X: 2, Z: -3}, 0)
-	if ToJavaEntities(source, DataVersion) != nil {
+	if Entities(source) != nil {
 		t.Fatal("empty entities produced a record")
 	}
 	frame, ok, err := be2je.ConvertBlockEntity("ItemFrame", blockentities.Input{
@@ -27,7 +27,7 @@ func TestToJavaEntitiesRoundTrip(t *testing.T) {
 		t.Fatalf("frame: %v %v", ok, err)
 	}
 	source.Entities = []nbt.Compound{frame.Entity}
-	document := ToJavaEntities(source, DataVersion)
+	document := Entities(source)
 	data, err := nbt.EncodeDocument(*document, nbt.EncodingBigEndian)
 	if err != nil {
 		t.Fatal(err)

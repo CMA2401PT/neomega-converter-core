@@ -6,7 +6,7 @@ import (
 	"neomega-converter-core"
 )
 
-func chunkBytes(chunk *converter.ConvertedChunk) int64 {
+func chunkBytes(chunk *converter.JavaChunk) int64 {
 	// 预算覆盖调色板、NBT 和诊断，并给 map/LRU 预留开销；共享对象在每层独立计费。
 	size := int64(256)
 	if chunk == nil {

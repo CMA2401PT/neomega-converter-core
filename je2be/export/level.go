@@ -6,6 +6,7 @@ import (
 	cellerbedrock "celler/bedrock"
 	"neomega-blocks/ir"
 	converts "neomega-blocks/presets/block-converts/v1"
+	"neomega-converter-core/bedrockout"
 	"neomega-converter-core/mapping"
 	tables "neomega-converter-core/third_party"
 	nbt "neomega-nbt/presets/v1"
@@ -13,17 +14,14 @@ import (
 
 // LevelReport 记录源数据缺失、改用 Bedrock 默认值的字段。
 type LevelReport struct {
-	Defaulted []string
+	DefaultedFields []string
 }
 
 // ConvertLevel 把 Java 的 level.dat 转成 Bedrock 的 level.dat。
 func ConvertLevel(document nbt.Document) (cellerbedrock.Level, LevelReport) {
 	data, _ := document.Value["Data"].(nbt.Compound)
 	report := LevelReport{}
-	root := nbt.Compound{
-		"StorageVersion":        int32(10),
-		"lastOpenedWithVersion": []int32{1, 21, 50, 0},
-	}
+	root := bedrockout.NewLevelData()
 	root["LevelName"] = value(data, "LevelName", "New World", &report)
 	root["SpawnX"] = value(data, "SpawnX", int32(0), &report)
 	root["SpawnY"] = value(data, "SpawnY", int32(64), &report)
@@ -69,15 +67,15 @@ func ConvertLevel(document nbt.Document) (cellerbedrock.Level, LevelReport) {
 		if seed, ok := numberOf(settings["seed"]); ok {
 			root["RandomSeed"] = seed
 		} else {
-			report.Defaulted = append(report.Defaulted, "RandomSeed")
+			report.DefaultedFields = append(report.DefaultedFields, "RandomSeed")
 		}
 		if generate, ok := numberOf(settings["generate_features"]); ok {
 			root["GenerateStructures"] = boolByte(generate != 0)
 		}
 	} else {
-		report.Defaulted = append(report.Defaulted, "RandomSeed")
+		report.DefaultedFields = append(report.DefaultedFields, "RandomSeed")
 	}
-	return cellerbedrock.Level{Version: 10, NBT: nbt.Document{Value: root}}, report
+	return bedrockout.Level(root), report
 }
 
 func gameRules(data nbt.Compound) nbt.Compound {
@@ -147,7 +145,7 @@ func value[T any](data nbt.Compound, key string, fallback T, report *LevelReport
 	if value, ok := data[key].(T); ok {
 		return value
 	}
-	report.Defaulted = append(report.Defaulted, key)
+	report.DefaultedFields = append(report.DefaultedFields, key)
 	return fallback
 }
 
@@ -155,7 +153,7 @@ func number(data nbt.Compound, key string, fallback int64, report *LevelReport) 
 	if value, ok := numberOf(data[key]); ok {
 		return value
 	}
-	report.Defaulted = append(report.Defaulted, key)
+	report.DefaultedFields = append(report.DefaultedFields, key)
 	return fallback
 }
 

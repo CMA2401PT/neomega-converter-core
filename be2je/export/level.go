@@ -2,10 +2,12 @@ package export
 
 import (
 	"encoding/json"
+	"reflect"
 
 	cellerbedrock "celler/bedrock"
 	"neomega-blocks/ir"
 	"neomega-converter-core/be2je"
+	"neomega-converter-core/javaout"
 	"neomega-converter-core/mapping"
 	tables "neomega-converter-core/third_party"
 	nbt "neomega-nbt/presets/v1"
@@ -16,56 +18,54 @@ type LevelReport struct {
 	DefaultedFields []string
 }
 
-func ConvertLevel(level cellerbedrock.Level, dataVersion int32) (nbt.Document, LevelReport, error) {
-	// 1.21.4 将世界生成配置放在 Data.WorldGenSettings，不能沿用 26.x 的独立文件布局。
+// ConvertLevel 把 Bedrock 的 level.dat 转成 Java 1.21.4 的 level.dat。
+// 只取两版含义一致的字段；取不到或类型不对时保留 Java 新世界的值，并记进报告。
+func ConvertLevel(level cellerbedrock.Level) (nbt.Document, LevelReport) {
 	source := level.NBT.Value
+	data := javaout.NewLevelData()
 	report := LevelReport{}
-	data := nbt.Compound{
-		"DataVersion": dataVersion, "version": int32(19133),
-		"Version":     nbt.Compound{"Id": dataVersion, "Name": "1.21.4", "Series": "main", "Snapshot": int8(0)},
-		"initialized": int8(1),
-		"DataPacks":   nbt.Compound{"Enabled": []string{"vanilla"}, "Disabled": []string{}},
-	}
-	data["LevelName"] = levelValue(source, "LevelName", "New World", &report)
-	data["SpawnX"] = levelValue(source, "SpawnX", int32(0), &report)
-	data["SpawnY"] = levelValue(source, "SpawnY", int32(64), &report)
-	data["SpawnZ"] = levelValue(source, "SpawnZ", int32(0), &report)
-	data["SpawnAngle"] = levelValue(source, "SpawnRotation", float32(0), &report)
+	copyField(data, "LevelName", source, "LevelName", &report)
+	copyField(data, "SpawnX", source, "SpawnX", &report)
+	copyField(data, "SpawnY", source, "SpawnY", &report)
+	copyField(data, "SpawnZ", source, "SpawnZ", &report)
+	copyField(data, "SpawnAngle", source, "SpawnRotation", &report)
 	seed := levelValue(source, "RandomSeed", int64(0), &report)
-	data["GameType"] = levelValue(source, "GameType", int32(0), &report)
+	copyField(data, "GameType", source, "GameType", &report)
 	// Bedrock 的 Difficulty 是 Int，Java 用 Byte；Time 和 currentTick 分别对应昼夜与总时间。
-	data["Difficulty"] = int8(levelValue(source, "Difficulty", int32(2), &report))
+	if difficulty, ok := source["Difficulty"].(int32); ok {
+		data["Difficulty"] = int8(difficulty)
+	} else {
+		report.DefaultedFields = append(report.DefaultedFields, "Difficulty")
+	}
 	dayTime := levelValue(source, "Time", int64(0), &report)
 	gameTime := levelValue(source, "currentTick", dayTime, &report)
 	data["Time"], data["DayTime"] = gameTime, dayTime
-	data["allowCommands"] = levelValue(source, "commandsAllowed", int8(0), &report)
+	copyField(data, "allowCommands", source, "commandsAllowed", &report)
 	data["hardcore"] = flag(source["IsHardcore"])
 	// Bedrock 的 LastPlayed 是秒，Java 是毫秒。
 	data["LastPlayed"] = levelValue(source, "LastPlayed", int64(0), &report) * 1000
 	data["raining"] = ratio(source["rainLevel"])
 	data["thundering"] = ratio(source["lightningLevel"])
-	data["rainTime"] = levelValue(source, "rainTime", int32(0), &report)
-	data["thunderTime"] = levelValue(source, "lightningTime", int32(0), &report)
-	data["clearWeatherTime"] = int32(0)
+	copyField(data, "rainTime", source, "rainTime", &report)
+	copyField(data, "thunderTime", source, "lightningTime", &report)
 	data["GameRules"] = convertGameRules(source)
 
-	overworld := noiseDimension("overworld", "overworld", "overworld")
-	if flat, ok := flatGenerator(source); ok {
-		overworld["generator"] = flat
-	}
-	generate := int8(1)
+	generate := true
 	if value, ok := numberOf(source["GenerateStructures"]); ok {
-		generate = flag(value)
+		generate = value != 0
 	}
-	data["WorldGenSettings"] = nbt.Compound{
-		"seed": seed, "generate_features": generate, "bonus_chest": int8(0),
-		"dimensions": nbt.Compound{
-			"minecraft:overworld":  overworld,
-			"minecraft:the_nether": noiseDimension("the_nether", "nether", "nether"),
-			"minecraft:the_end":    noiseDimension("the_end", "end", ""),
-		},
+	overworld, _ := flatGenerator(source)
+	data["WorldGenSettings"] = javaout.WorldGenSettings(seed, generate, overworld)
+	return javaout.Level(data), report
+}
+
+// copyField 复制两版类型相同的字段；类型以 data 里的默认值为准。
+func copyField(data nbt.Compound, javaKey string, source nbt.Compound, bedrockKey string, report *LevelReport) {
+	if value, ok := source[bedrockKey]; ok && reflect.TypeOf(value) == reflect.TypeOf(data[javaKey]) {
+		data[javaKey] = value
+		return
 	}
-	return nbt.Document{Value: nbt.Compound{"Data": data}}, report, nil
+	report.DefaultedFields = append(report.DefaultedFields, bedrockKey)
 }
 
 func levelValue[T any](source nbt.Compound, key string, fallback T, report *LevelReport) T {
@@ -165,25 +165,19 @@ func flatGenerator(source nbt.Compound) (nbt.Compound, bool) {
 	if err := json.Unmarshal([]byte(raw), &flat); err != nil {
 		return nil, false
 	}
-	layers := make([]nbt.Compound, 0, len(flat.BlockLayers))
+	layers := make([]javaout.FlatLayer, 0, len(flat.BlockLayers))
 	for _, layer := range flat.BlockLayers {
 		name := namespaced(layer.BlockName)
 		if state, ok := be2je.ConvertState(ir.IRBlock(name + " []")); ok {
 			name = state.NameWithNameSpace()
 		}
-		layers = append(layers, nbt.Compound{"block": name, "height": layer.Count})
+		layers = append(layers, javaout.FlatLayer{Block: name, Height: layer.Count})
 	}
 	biome := "minecraft:plains"
 	if java, ok := tables.Biome(flat.BiomeID); ok {
 		biome = java
 	}
-	return nbt.Compound{
-		"type": "minecraft:flat",
-		"settings": nbt.Compound{
-			"biome": biome, "features": int8(0), "lakes": int8(0),
-			"layers": layers, "structure_overrides": []string{},
-		},
-	}, true
+	return javaout.FlatGenerator(biome, layers), true
 }
 
 func namespaced(name string) string {
@@ -193,16 +187,4 @@ func namespaced(name string) string {
 		}
 	}
 	return "minecraft:" + name
-}
-
-func noiseDimension(kind, settings, preset string) nbt.Compound {
-	// 三套原版生成器只引用内置注册表，继续生成新区块时不需要附带数据包。
-	biome := nbt.Compound{"type": "minecraft:multi_noise", "preset": "minecraft:" + preset}
-	if preset == "" {
-		biome = nbt.Compound{"type": "minecraft:the_end"}
-	}
-	return nbt.Compound{
-		"type":      "minecraft:" + kind,
-		"generator": nbt.Compound{"type": "minecraft:noise", "settings": "minecraft:" + settings, "biome_source": biome},
-	}
 }

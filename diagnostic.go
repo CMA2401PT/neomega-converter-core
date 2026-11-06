@@ -4,28 +4,8 @@ import (
 	"fmt"
 
 	"celler"
-	cellerjava "celler/java"
-	"celler/layer_storage"
 	"neomega-blocks/ir"
-
-	nbt "neomega-nbt/presets/v1"
 )
-
-type ConvertedChunk struct {
-	// 整根区块保留转换后的状态，供缓存和邻居修复共享同一份输入。
-	Pos           celler.ChunkPos
-	Dimension     int32
-	Sections      map[int32]*ConvertedSection
-	BlockEntities []cellerjava.BlockEntity
-	Diagnostics   []Diagnostic
-	Entities      []nbt.Compound
-}
-
-type ConvertedSection struct {
-	// 方块按调色板共享状态；生物群系尚无映射时用 nil 表达缺失。
-	Blocks *layer_storage.Palette[ir.IRBlock]
-	Biomes *[64]string
-}
 
 type DiagnosticKind string
 
@@ -54,7 +34,7 @@ type Diagnostic struct {
 
 // ReportUnknownItem 合并同一物品名的失败计数。
 // 区块转换是单 goroutine 的；结果对象不跨任务共享。
-func (c *ConvertedChunk) ReportUnknownItem(name string) {
+func (c *JavaChunk) ReportUnknownItem(name string) {
 	c.Diagnostics = reportUnknownItem(c.Diagnostics, name)
 }
 

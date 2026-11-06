@@ -9,7 +9,8 @@ import (
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	"neomega-converter-core"
-	converterjava "neomega-converter-core/je2be"
+	"neomega-converter-core/bedrockout"
+	"neomega-converter-core/je2be"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -37,12 +38,12 @@ func openBedrock(t *testing.T) *cellerbedrock.World {
 }
 
 func TestWriteChunk(t *testing.T) {
-	converted, err := converterjava.ConvertChunk(celler.ChunkPos{}, 0, javaChestChunk(t))
+	converted, err := je2be.ConvertChunk(celler.ChunkPos{}, 0, javaChestChunk(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	world := openBedrock(t)
-	if err := WriteChunk(world, converted); err != nil {
+	if err := bedrockout.WriteChunk(world, converted); err != nil {
 		t.Fatal(err)
 	}
 	back, err := world.ReadChunk(0, celler.ChunkPos{})
@@ -67,7 +68,7 @@ func TestWriteChunk(t *testing.T) {
 	if finalized := back.Records[string([]byte{cellerbedrock.TagFinalizedState})]; len(finalized) != 1 || finalized[0] != 2 {
 		t.Fatalf("finalized: %x", finalized)
 	}
-	if version := back.Records[string([]byte{cellerbedrock.TagVersion})]; len(version) != 1 || version[0] != chunkVersion {
+	if version := back.Records[string([]byte{cellerbedrock.TagVersion})]; len(version) != 1 || version[0] != 42 {
 		t.Fatalf("version: %x", version)
 	}
 }
@@ -97,7 +98,7 @@ func TestConvertLevel(t *testing.T) {
 			t.Errorf("%s = %#v, want %#v", key, value[key], want)
 		}
 	}
-	if len(report.Defaulted) == 0 {
+	if len(report.DefaultedFields) == 0 {
 		t.Fatal("expected defaulted fields")
 	}
 }
@@ -133,7 +134,7 @@ func TestConvertWorld(t *testing.T) {
 }
 
 func TestWriteChunkActors(t *testing.T) {
-	converted, err := converterjava.ConvertChunk(celler.ChunkPos{}, 0, javaChestChunk(t))
+	converted, err := je2be.ConvertChunk(celler.ChunkPos{}, 0, javaChestChunk(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ func TestWriteChunkActors(t *testing.T) {
 		NBT: nbt.Compound{"identifier": "minecraft:zombie"},
 	}}
 	world := openBedrock(t)
-	if err := WriteChunk(world, converted); err != nil {
+	if err := bedrockout.WriteChunk(world, converted); err != nil {
 		t.Fatal(err)
 	}
 	documents, err := world.ReadChunkActors(0, celler.ChunkPos{})

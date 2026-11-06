@@ -9,12 +9,12 @@ import (
 	"neomega-converter-core"
 )
 
-// ReadConvertedChunk 按坐标读取只读 Java 转换结果；不存在的柱子返回 nil, nil。
-type ReadConvertedChunk func(context.Context, celler.ChunkPos) (*converter.ConvertedChunk, error)
+// ReadJavaChunk 按坐标读取只读 Java 转换结果；不存在的柱子返回 nil, nil。
+type ReadJavaChunk func(context.Context, celler.ChunkPos) (*converter.JavaChunk, error)
 
 type cacheEntry struct {
 	pos   celler.ChunkPos
-	chunk *converter.ConvertedChunk
+	chunk *converter.JavaChunk
 	bytes int64
 }
 
@@ -23,7 +23,7 @@ type flight struct {
 	done    chan struct{}
 	cancel  context.CancelFunc
 	waiters int
-	chunk   *converter.ConvertedChunk
+	chunk   *converter.JavaChunk
 	err     error
 }
 
@@ -35,11 +35,11 @@ type CachedSource struct {
 	order   *list.List
 	entries map[celler.ChunkPos]*list.Element
 	flights map[celler.ChunkPos]*flight
-	load    ReadConvertedChunk
+	load    ReadJavaChunk
 }
 
 // NewCachedSource 缓存读取结果并合并同坐标的并发请求，调用方负责保证来源稳定。
-func NewCachedSource(options Options, load ReadConvertedChunk) *CachedSource {
+func NewCachedSource(options Options, load ReadJavaChunk) *CachedSource {
 	limit := options.CacheBytes
 	if limit == 0 {
 		limit = 64 << 20
@@ -53,7 +53,7 @@ func NewCachedSource(options Options, load ReadConvertedChunk) *CachedSource {
 	}
 }
 
-func (c *CachedSource) Chunk(ctx context.Context, pos celler.ChunkPos) (*converter.ConvertedChunk, error) {
+func (c *CachedSource) Chunk(ctx context.Context, pos celler.ChunkPos) (*converter.JavaChunk, error) {
 	// 每个调用只取消自己的等待；最后一个等待者退出时才撤销共享任务。
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func (c *CachedSource) Chunk(ctx context.Context, pos celler.ChunkPos) (*convert
 func (c *CachedSource) run(ctx context.Context, pos celler.ChunkPos, work *flight) {
 	// 已撤销任务可能仍在不可中断的计算中；它结束时不能覆盖同坐标的新任务或缓存。
 	defer work.cancel()
-	var chunk *converter.ConvertedChunk
+	var chunk *converter.JavaChunk
 	err := ctx.Err()
 	if err == nil {
 		chunk, err = c.load(ctx, pos)
@@ -120,7 +120,7 @@ func (c *CachedSource) run(ctx context.Context, pos celler.ChunkPos, work *fligh
 	close(work.done)
 }
 
-func (c *CachedSource) put(pos celler.ChunkPos, chunk *converter.ConvertedChunk, size int64) {
+func (c *CachedSource) put(pos celler.ChunkPos, chunk *converter.JavaChunk, size int64) {
 	// 缺柱也有条目开销，避免空区域无限积累；超预算的单根结果只交给当前等待者。
 	if size > c.limit {
 		return

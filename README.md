@@ -1,11 +1,47 @@
 # neomega-converter-core
 
-本模块在 Bedrock 与 Java 之间转换方块、方块实体、物品、实体和存档，供渲染或写出使用。
-`be2je` 读 Bedrock 写 Java，`je2be` 读 Java 写 Bedrock；`bedrock-to-java` 和
-`java-to-bedrock` 命令行由 [neomega-converter](../apps/neomega-converter/README.md) 组合。
+本模块在 Bedrock 与 Java 存档之间互相转换，也把结构文件写成可以直接打开的原生世界。
+`bedrock-to-java`、`java-to-bedrock` 和 `structure-to-world` 命令行由 [neomega-converter](../apps/neomega-converter/README.md) 组合。
 一根区块柱子的水平范围是 16×16，内部按高度分成 16×16×16 的 section。
-邻接属性修复只存在于 Bedrock → Java 方向，由应用层组合。
-本模块依赖方块、NBT 与存档基础库，不依赖渲染器或 fixer。
+本模块依赖方块、NBT 与存档基础库，不依赖渲染器或 fixer；邻接属性修复由应用层组合。
+
+## 整体结构
+
+格式虽多，每一种转换都是同样的三段：读源，得到目标版本的一根柱子，再写成目标的原生记录。
+中间那根柱子叫中间结果，只有两种：`JavaChunk` 装 Java 方块状态，`BedrockChunk` 装 Bedrock 方块状态。
+两者定义在根包，方块状态属于不同的 hash 空间，不能互相直接写回。
+
+```text
+Bedrock 存档 ───── be2je ───────┐
+Java 结构文件 ──── structure ───┴─▶ JavaChunk ───── javaout ────▶ Java 存档
+
+Java 存档 ──────── je2be ───────┐
+mcstructure ────── structure ───┴─▶ BedrockChunk ── bedrockout ─▶ Bedrock 存档
+
+mcworld ────────── structure ─────────── 原样解压 ──────────────▶ Bedrock 存档
+```
+
+图里的 Java 结构文件指 `.schem`、`.schematic`、`.litematic` 和原版 `.nbt`。
+每个包只负责图中的一段：
+
+| 包 | 负责 | 不碰 |
+|---|---|---|
+| `be2je`、`je2be` | 跨版本翻译方块、方块实体、物品、实体和群系，输入输出都是内存中的柱子 | 文件、并发 |
+| `javaout`、`bedrockout` | 把中间结果写成原生记录，定义区块字段、高度、记录版本和 `level.dat` 的新世界内容 | 数据从哪来 |
+| `be2je/export`、`je2be/export` | 整图转换：扫描源存档、并行翻译和编码、按序写出、汇总报告，并翻译 `level.dat` | 单格规则、记录格式 |
+| `structure` | 流式读取结构文件，按片区重排后构造同版本的中间结果 | 跨版本翻译 |
+| `adapt` | 按坐标读取 Bedrock 柱子，翻译成 `JavaChunk` 并缓存，供浏览器和修复使用 | 写出 |
+
+`internal/pipeline` 是整图转换和结构转换共用的有界并行调度：一个协程读源，多个任务计算，一个协程按源顺序写出。
+
+### 新增或修改一种转换时
+
+先判断改动落在三段中的哪一段，位置就只有一个：
+
+- 某种方块、物品或实体翻译得不对：改 `be2je` 或 `je2be`，具体子包见 [AGENTS.md](AGENTS.md#添加规则)。
+- 写出的柱子游戏读不对，例如高度、PostProcessing、记录版本或 `level.dat` 默认值：改 `javaout` 或 `bedrockout`，所有来源同时受益。
+- 支持一种新的结构格式：在 `structure` 写一个流式读取器，在 `formats` 表登记它写成哪个版本，写出直接复用该版本已有的路径。
+- 新的来源或目标组合，例如把 Bedrock 存档写成 Java 结构文件：用 celler 读源；版本不同时调用 `be2je` 或 `je2be` 得到中间结果；目标是存档时用对应的 `*out` 包写出，目标是新容器时为它写一个新的写出包。并行与内存预算复用 `internal/pipeline`。
 
 ## 能力一览
 
@@ -15,30 +51,37 @@
 所列行为以当前代码为准，修改实现时请同步这一节。
 
 ```text
-能力                                   输入 → 输出
-be2je.ConvertState(state)            单个 Bedrock 状态 → Java 状态, ok
-items.ConvertItem(item)                Bedrock 物品 compound → Java 物品 compound 或 nil
-be2je.ConvertBlockEntity(id, Input)  单格方块实体 → Java 状态 + 可选方块实体 / 实体, ok, err
-be2je.ConvertSection(pos, dim, ...)  单个 Bedrock section + 方块实体 → ConvertedChunk
-be2je.ConvertChunk(chunk)            Bedrock 整根柱子 → ConvertedChunk, err
-be2je.ConvertChunkWithActors(chunk, actors)  同上并追加 digp 实体 → ConvertedChunk, err
-adapt.NewConverted(read, opts)        按坐标读取 Bedrock 柱子 → 缓存转换结果 的来源
-export.ToJavaChunk / ToJavaEntities    ConvertedChunk → Java 区块 / Java 实体记录
-export.ConvertLevel(level)             Bedrock level.dat → Java level.dat
-export.ConvertWorld(src, dst, opts)    Bedrock 存档 → Java 存档，不跑 fixer
+能力                                          输入 → 输出
+# 跨版本翻译：只处理内存中的数据
+be2je.ConvertState(state)                   单个 Bedrock 状态 → Java 状态, ok
+items.ConvertItem(item)                     Bedrock 物品 compound → Java 物品 compound 或 nil
+be2je.ConvertBlockEntity(id, Input)         单格方块实体 → Java 状态 + 可选方块实体 / 实体, ok, err
+be2je.ConvertSection(pos, dim, ...)         单个 Bedrock section + 方块实体 → JavaChunk
+be2je.ConvertChunk(chunk)                   Bedrock 整根柱子 → JavaChunk, err
+be2je.ConvertChunkWithActors(chunk, actors) 同上并追加 digp 实体 → JavaChunk, err
+je2be.ConvertChunk(pos, dim, chunk)         Java 整根柱子 → BedrockChunk, err
+je2be.ConvertChunkWithActors(pos, dim, chunk, actors)  同上并追加实体
+
+# 写成原生记录：不关心数据来源
+javaout.Encode(chunk, height)               JavaChunk → 压缩好的地形与实体 region 记录
+javaout.Chunk / Entities                    JavaChunk → Java 区块 / Java 实体文档
+javaout.NewLevelData()                      Java 新世界的 level.dat 内容
+bedrockout.EncodeChunk(chunk)               BedrockChunk → Bedrock 数据库记录
+bedrockout.NewBatch(world, newWorld)        按 8 MiB 批次提交编码好的柱子
+bedrockout.NewLevelData()                   Bedrock level.dat 的版本字段
+
+# 整图转换
+be2je/export.ConvertLevel(level)            Bedrock level.dat → Java level.dat
+be2je/export.ConvertWorld(src, dst, opts)   Bedrock 存档 → Java 存档，不跑 fixer
+je2be/export.ConvertLevel(document)         Java level.dat → Bedrock level.dat
+je2be/export.ConvertWorld(src, dst, opts)   Java 存档 → Bedrock 存档
 structure.ConvertFile(ctx, input, output, options...)  结构文件 → 原生 Java／Bedrock 存档目录；拒绝覆盖非空目录
 
-# Java → Bedrock
-je2be.ConvertChunk(chunk)              Java 整根柱子 → BedrockChunk, err
-je2be.ConvertChunkWithActors(chunk, actors)  同上并追加实体
-je2be/export.WriteChunk(world, chunk)  写出 Bedrock 柱子（含实体、群系）
-je2be/export.ConvertLevel(document)    Java level.dat → Bedrock level.dat
-je2be/export.ConvertWorld(src, dst, opts)  Java 存档 → Bedrock 存档
+# 按坐标读取
+adapt.NewConverted(read, opts)              按坐标读取 Bedrock 柱子 → 缓存的 JavaChunk
 ```
 
-这些入口都在本模块。两个方向不共用结果类型，也不共用方块实体 Input：
-`ConvertedChunk` 是 Java 结果，`BedrockChunk` 是 Bedrock 结果；两种 `ir.IRBlock`
-状态属于不同的 hash 空间，不能互相直接写回。Java → Bedrock 的字段差异和逐项文档见
+两个方向不共用方块实体 Input。Java → Bedrock 的字段差异和逐项文档见
 [je2be/NBT.md](je2be/NBT.md)。
 
 `ConvertState` 内部使用 `neomega-blocks/presets/block-converts/v1` 的两个函数。
@@ -152,8 +195,8 @@ chest、sign、banner 和容器类规则产出 Java 方块实体，只有 item_f
 ### be2je.ConvertChunk：整根柱子（阶段 1）
 
 ```text
-ConvertChunk(*cellerbedrock.Chunk) → (*ConvertedChunk, err)
-ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *ConvertedChunk
+ConvertChunk(*cellerbedrock.Chunk) → (*JavaChunk, err)
+ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *JavaChunk
   第 0 层：按调色板条目做 ConvertState，失败的条目输出空气
   方块实体：对上表注册的 id 调用规则，产出的方块实体坐标改写为世界坐标，实体进 Entities
   第 1 层：water / flowing_water 让最终状态附带 waterlogged="true"
@@ -180,41 +223,35 @@ ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *ConvertedCh
     村民交易、乘骑、宠物主人、盔甲架姿势等类型专属数据不保留
 ```
 
-## 导出 Java 存档
+## Bedrock 存档转成 Java 存档
 
-`export.ConvertWorld` 扫描源世界，将独占的区块记录交给并行任务完成转换、NBT 编码和压缩，再由调用协程按源顺序写出并合并报告。源与目标句柄分别由一个协程使用。严格模式按源顺序停止，后面的任务即使先完成，也不会越过失败柱子写出。
+`be2je/export.ConvertWorld` 扫描源世界，将独占的区块记录交给并行任务完成 `be2je` 转换和 `javaout` 编码、压缩，再由调用协程按源顺序写出并合并报告。源与目标句柄分别由一个协程使用。严格模式按源顺序停止，后面的任务即使先完成，也不会越过失败柱子写出。
 
-`export.ConvertOptions` 和反向的 `je2be/export.ConvertOptions` 都支持 `MemoryMiB`、`Workers` 和 `Context`。内存预算零值为 512 MiB，至少 64 MiB；并发零值按 CPU 自动选择，最多 8 个。每个存档转换任务按 64 MiB 工作区估算并发，至少执行一个任务，因此预算不是进程 RSS 硬上限。任务窗口最多保留与实际并发数相同的未交付输入和结果，另有生产者正在读取的一根柱子；慢任务不会造成无界积压。`Context` 为 nil 时使用 Background，返回前等待所有读取和计算退出。
+`be2je/export.ConvertOptions` 和反向的 `je2be/export.ConvertOptions` 都支持 `MemoryMiB`、`Workers` 和 `Context`。内存预算零值为 512 MiB，至少 64 MiB；并发零值按 CPU 自动选择，最多 8 个。每个存档转换任务按 64 MiB 工作区估算并发，至少执行一个任务，因此预算不是进程 RSS 硬上限。任务窗口最多保留与实际并发数相同的未交付输入和结果，另有生产者正在读取的一根柱子；慢任务不会造成无界积压。`Context` 为 nil 时使用 Background，返回前等待所有读取和计算退出。
 
 ```text
 ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict, IncludeUnfinished}) → (Report, err)
-  逐根柱子：ScanChunks → 跳过未完成柱子 → ConvertChunk → ToJavaChunk / ToJavaEntities → 写 region / entities
+  逐根柱子：ScanChunks → 跳过未完成柱子 → be2je.ConvertChunk → javaout.Encode → 写 region / entities
   默认跳过 0x36 FinalizedState < 2 的柱子；记录缺失按已完成处理，和 mcconv 一致
   读取 digp/actorprefix 失败只记 nbt_error 并继续写出该柱地形
-  区块转换或目标结构构建失败记 FailedChunks；NBT 序列化、压缩或写盘失败中止整图
-  不跑 fixer；需要按邻居重算形状的格子登记进 PostProcessing，游戏加载区块时重算
-    登记：栅栏、栅栏门、玻璃板、铁栏杆、楼梯、墙、红石线、绊线、紫颂植物
-    其余方块不登记：重算会让缺支撑的方块掉落
-  err：Strict 时第一根 ConvertChunk 失败的柱子；写盘失败
+  柱子转换、编码或压缩失败记 FailedChunks；写盘失败中止整图
+  不跑 fixer；需要按邻居重算形状的格子由 javaout 登记进 PostProcessing，游戏加载区块时重算
+  err：Strict 时第一根失败的柱子；写盘失败
   Report：每个维度的柱子数、失败的柱子、跳过的柱子数、各诊断种类合计、未知状态前 10、
           不支持的方块实体按 id 合计、超出 Java 高度被丢弃的 section 数、方块实体数、实体数
 
 ```
 
-写出的 Java 区块：
+柱子的写出格式见 [javaout/NBT.md](javaout/NBT.md)：高度范围、加载字段、PostProcessing 名单和实体记录都在那里定义。
 
 ```text
-ToJavaChunk(ConvertedChunk, 4189, 可选 [2]int32{最低section, 最高section}) → cellerjava.Chunk
-  Status=minecraft:full，yPos 为维度最低 section，isLightOn=0，Heightmaps 为空
-  默认超出目标高度的 section 丢弃（主世界 -4..19，下界和末地 0..15）；显式范围用于扩展高度世界
-  waterlogged 原样写出；Java 不能含水的方块上的 waterlogged，游戏加载时会丢掉
-ToJavaEntities(ConvertedChunk, 4189) → {DataVersion, Position, Entities} 或 nil（没有实体）
-ConvertLevel(Level, 4189) → (level.dat, LevelReport, err)
-  从 Bedrock 取 LevelName、SpawnX/Y/Z/SpawnRotation、RandomSeed、GameType、Difficulty、
+ConvertLevel(Level) → (level.dat, LevelReport)
+  从 javaout.NewLevelData 的新世界出发，覆盖 Bedrock 里有的字段：
+    LevelName、SpawnX/Y/Z/SpawnRotation、RandomSeed、GameType、Difficulty、
     IsHardcore、commandsAllowed、Time/currentTick、LastPlayed（秒转毫秒）、
     rainLevel/lightningLevel/rainTime/lightningTime、27 条两版同名的游戏规则、
     GenerateStructures
-  取不到或类型不对时用 Java 默认值，并列进 LevelReport.DefaultedFields
+  取不到或类型不对时保留新世界的值，并列进 LevelReport.DefaultedFields
   Time 写总时间、DayTime 写昼夜时间；WorldGenSettings 写原版三维度生成器，种子取 RandomSeed
   Generator=2 且 FlatWorldLayers 可解析时，主世界写成 minecraft:flat 生成器，
     层高与群系按源数据转换；解析失败退回噪声生成器
@@ -237,7 +274,7 @@ ConvertLevel(Level, 4189) → (level.dat, LevelReport, err)
 
 `output` 为空时，存档放在源文件旁去掉最后一个扩展名的同名文件夹，例如 `城堡.schem` → `城堡/`。非空目标目录返回错误。转换在相邻临时目录完成，成功后才发布目标目录；失败或取消会清理暂存内容。
 
-数组可能出现在尺寸和调色板之前，所以解析时先用固定缓冲接收并压缩暂存，元数据齐全后再消费。空间重排的总缓冲为 8 MiB。写出阶段按 128×128 的水平片区并行组装、编码和压缩，每个任务最多展开 64 根区块柱，Java 压缩记录或 Bedrock 编码记录按片区顺序交给同一个写入者。片区内部保持源记录顺序，因此多区域覆盖结果不受任务完成顺序影响。
+数组可能出现在尺寸和调色板之前，所以解析时先用固定缓冲接收并压缩暂存，元数据齐全后再消费。空间重排的总缓冲为 8 MiB。写出阶段按 128×128 的水平片区并行组装、编码和压缩，每个任务最多展开 64 根区块柱：Java 结构展开成 `JavaChunk` 交给 `javaout`，mcstructure 展开成 `BedrockChunk` 交给 `bedrockout`。编码好的记录按片区顺序交给同一个写入者。片区内部保持源记录顺序，因此多区域覆盖结果不受任务完成顺序影响。
 
 可选的 `structure.Options{MemoryMiB: 512, Workers: 0}` 控制工作预算。预算先为片区工作区预留空间，余量足够时对已经写完的压缩暂存文件建立只读 mmap，即由操作系统按需映射文件页面，解压直接读取这些页面。Darwin、Linux 和 Windows 支持映射；预算不足或其他平台使用按偏移读取。映射大小从并发预算中扣除，再按片区高度限制任务数。`MemoryMiB` 的零值为 512，最小值为 64；`Workers` 的零值按 CPU 数自动选择，最多 8 个，显式值仍受预算限制。mcstructure 共用暂存读取和有界调度，双层片区各预留 64 MiB 工作区，并为 8 MiB 数据库批次及合并副本预留 16 MiB。基岩区块与实体共同批量提交；mcworld 只逐条解压。
 
@@ -250,7 +287,7 @@ Java 输出使用 DataVersion 4189、空超平坦主世界和 plains 群系；�
 ## 转换源区块
 
 源数据中的床颜色、花盆植物和第二层水，需要在源数据仍可读取时合并。
-`be2je.ConvertChunk` 接收 `*celler/be2je.Chunk`，返回 `*converter.ConvertedChunk`。
+`be2je.ConvertChunk` 接收 `*celler/be2je.Chunk`，返回 `*converter.JavaChunk`。
 后者保存整根柱子的 Java 状态、Java 方块实体和诊断，可以作为转换结果缓存。
 方块实体是附着在某个方块上的 NBT 数据，例如箱子物品。
 NBT 是 Minecraft 使用的带类型的数据格式。
@@ -271,7 +308,7 @@ Java 状态用 `ir.IRBlock` 表示，即方块名与属性的规范文本。
 [床](be2je/blockentities/bed/NBT.md)和[花盆](be2je/blockentities/flower_pot/NBT.md)。
 区块记录的整体结构见 [be2je/NBT.md](be2je/NBT.md)；物品、普通实体和 level.dat
 分别见 [items/NBT.md](be2je/items/NBT.md)、[actors/NBT.md](be2je/actors/NBT.md)、
-[export/NBT.md](export/NBT.md)。
+[be2je/export/NBT.md](be2je/export/NBT.md)。
 
 实体规则执行后，同一格第二层的 `water` 或 `flowing_water` 会让最终状态附带 `waterlogged="true"`。
 `waterlogged` 表示含水，仓库将它作为可附加到方块状态的扩展属性。
@@ -293,7 +330,7 @@ section 解码失败通过 `error` 返回。
 ## 普通实体
 
 `be2je.ConvertChunk` 读取柱子自带的 0x32 记录；`be2je.ConvertChunkWithActors` 再追加
-调用方从 `digp`/`actorprefix` 读到的实体（`export.ConvertWorld` 已经这样做）。
+调用方从 `digp`/`actorprefix` 读到的实体（`be2je/export.ConvertWorld` 已经这样做）。
 两类记录都交给 `be2je/actors`，它只转换两版含义一致的字段：
 
 - `id`：Bedrock 标识经一张小的改名表转成 Java id（僵尸猪灵、卫道士、村民变种等）；
@@ -309,11 +346,11 @@ section 解码失败通过 `error` 返回。
 浏览或区域导出通常只需要一部分柱子。
 `adapt.NewConverted` 接收一个绑定来源和维度的 Bedrock 读取回调，按坐标转换并缓存结果。
 第三个可选参数 `ReadActors` 读取 digp/actorprefix 中与地形分开的普通实体；读取失败记入 `nbt_error`，地形继续转换。
-`Chunk(ctx, pos)` 返回只读共享的 `ConvertedChunk`；缺失柱子返回 `nil, nil`。
+`Chunk(ctx, pos)` 返回只读共享的 `JavaChunk`；缺失柱子返回 `nil, nil`。
 源回调用 `fs.ErrNotExist` 表达缺失，支持包装后的错误。
 
 需要缓存其他产生 Java 转换结果的计算时，使用 `adapt.NewCachedSource`。
-它接收 `ReadConvertedChunk` 回调，负责同坐标请求合并、取消与按字节预算淘汰。
+它接收 `ReadJavaChunk` 回调，负责同坐标请求合并、取消与按字节预算淘汰。
 外层的修复缓存也使用这个实现，因此两层拥有独立条目但共享调度语义。
 `Options.CacheBytes` 为零时使用 64 MiB，负值只合并在途请求，超预算的单根结果不留存。
 预算包含调色板、NBT、诊断和条目开销的估算，不等于进程内存上限。
@@ -340,14 +377,13 @@ go run ./neomega-converter-core/examples/convert-chunk
 维护本模块的目录边界、规则扩展和验收命令见 [AGENTS.md](AGENTS.md)。
 
 
-## Java → Bedrock
+## Java 存档转成 Bedrock 存档
 
 `je2be.ConvertChunk` / `je2be.ConvertChunkWithActors` 把 Java 柱子转成
-`converter.BedrockChunk`，`je2be/export` 写出 Bedrock 区块、实体和 `level.dat`。
-源 Java 句柄只读取独占的压缩记录，解压、NBT 解析、转换和 Bedrock 编码由任务并行完成。写入者按源顺序将编码记录合并到最多 8 MiB 的批次，超大单柱单独提交；批次提交时预留一份合并副本。报告只计入已提交的柱子。严格模式会提交失败柱子之前的待写结果；取消时丢弃未提交批次，已写出的内容仍然保留。
+`converter.BedrockChunk`，`bedrockout` 把它编码成 Bedrock 区块与实体记录，`je2be/export` 把两者接成整图转换并翻译 `level.dat`。
+源 Java 句柄只读取独占的压缩记录，解压、NBT 解析、转换和 Bedrock 编码由任务并行完成。写入者按源顺序把编码记录交给 `bedrockout.Batch`，报告只计入已提交的柱子。严格模式会提交失败柱子之前的待写结果；取消时丢弃未提交批次，已写出的内容仍然保留。
 
-`je2be/export.EncodeChunk` 只生成原生记录，mcstructure 与存档互转共用它。普通 `WriteChunk` 使用相同编码能力，将地形和实体在同一批次中替换。`ConvertOptions.NewWorld` 默认为 false，保留已有区块的清理语义；明确新建世界时设为 true 可省去旧记录扫描。命令行和结构转换器只写新目标，因此会启用该选项。
+`ConvertOptions.NewWorld` 默认为 false，保留已有区块的清理语义；明确新建世界时设为 true 可省去旧记录扫描。命令行只写新目标，因此会启用该选项。
 
-反方向不共用 `ConvertedChunk`，也不共用方块实体 Input；两个方向的 IR 状态属于不同
-hash 空间。总览见 [je2be/NBT.md](je2be/NBT.md)，命令行见
+总览见 [je2be/NBT.md](je2be/NBT.md)，记录格式见 [bedrockout/NBT.md](bedrockout/NBT.md)，命令行见
 [apps/neomega-converter](../apps/neomega-converter/README.md)。

@@ -60,7 +60,7 @@ func main() {
 		log.Fatal(err)
 	}
 	// 4. error 表示整根柱子不能转换；Diagnostics 保存仍能输出时的可恢复问题。
-	var converted *converter.ConvertedChunk
+	var converted *converter.JavaChunk
 	var err error
 	converted, err = be2je.ConvertChunk(source)
 	if err != nil {

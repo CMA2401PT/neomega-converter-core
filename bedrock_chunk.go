@@ -8,8 +8,8 @@ import (
 	nbt "neomega-nbt/presets/v1"
 )
 
-// BedrockChunk 是 Java → Bedrock 的中间结果。
-// 它和 ConvertedChunk 分开：两个字段里的 ir 方块状态属于不同的 hash 空间。
+// BedrockChunk 是写成 Bedrock 存档前的一根柱子。je2be 和 mcstructure 产出它，bedrockout 把它写成数据库记录。
+// 它和 JavaChunk 分开：两边的 ir 方块状态属于不同的 hash 空间，不能互相直接写回。
 type BedrockChunk struct {
 	Pos       celler.ChunkPos
 	Dimension int32

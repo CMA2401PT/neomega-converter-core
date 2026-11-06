@@ -212,7 +212,7 @@ func fixtureChunk(t *testing.T, layers [][]ir.IRBlock, entities map[[3]uint8]str
 	return chunk
 }
 
-func convertFixture(t *testing.T, layers [][]ir.IRBlock, entities map[[3]uint8]string, y int32) *converter.ConvertedChunk {
+func convertFixture(t *testing.T, layers [][]ir.IRBlock, entities map[[3]uint8]string, y int32) *converter.JavaChunk {
 	t.Helper()
 	converted, err := ConvertChunk(fixtureChunk(t, layers, entities, y))
 	if err != nil {

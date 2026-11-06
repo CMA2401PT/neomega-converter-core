@@ -18,7 +18,7 @@ var plainsBiomes = func() *[64]string {
 }()
 
 // applyBiomes 把 Bedrock 的群系记录填进转换结果。Data3D 优先，2D 回退。
-func applyBiomes(src *cellerbedrock.Chunk, result *converter.ConvertedChunk) {
+func applyBiomes(src *cellerbedrock.Chunk, result *converter.JavaChunk) {
 	if data, err := src.Biomes3D(); err == nil {
 		applyBiomes3D(data, result)
 		return
@@ -37,7 +37,7 @@ func biomeMinSection(dimension int32) int32 {
 	return 0
 }
 
-func applyBiomes3D(data *cellerbedrock.Biomes3D, result *converter.ConvertedChunk) {
+func applyBiomes3D(data *cellerbedrock.Biomes3D, result *converter.JavaChunk) {
 	base := biomeMinSection(result.Dimension)
 	var previous *[64]string
 	for index, section := range data.Sections {
@@ -66,7 +66,7 @@ func applyBiomes3D(data *cellerbedrock.Biomes3D, result *converter.ConvertedChun
 	}
 }
 
-func applyBiomes2D(data cellerbedrock.Biomes2D, result *converter.ConvertedChunk) {
+func applyBiomes2D(data cellerbedrock.Biomes2D, result *converter.JavaChunk) {
 	// 2D 记录只有每个 16×16 列一个值；每个 4×4 单元取列角落的样本，
 	// 和 mcconv 的做法一致。所有 section 共用同一份 4×4×4 结果。
 	biomes := new([64]string)

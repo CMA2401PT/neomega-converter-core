@@ -11,8 +11,10 @@ import (
 	cellerjava "celler/java"
 	"celler/java/region"
 	"neomega-converter-core"
+	"neomega-converter-core/bedrockout"
 	"neomega-converter-core/internal/pipeline"
-	converterjava "neomega-converter-core/je2be"
+	"neomega-converter-core/javaout"
+	"neomega-converter-core/je2be"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -41,8 +43,6 @@ type Report struct {
 	Diagnostics  map[converter.DiagnosticKind]uint64
 }
 
-var dimensions = map[int32]cellerjava.Dimension{0: cellerjava.Overworld, 1: cellerjava.Nether, 2: cellerjava.End}
-
 // chunkTaskBytes 是一根柱子在任务内解码、转换和编码的工作区估算。
 const chunkTaskBytes = 64 * 1024 * 1024
 
@@ -50,12 +50,10 @@ const chunkTaskBytes = 64 * 1024 * 1024
 // 报告仅计入已提交的区块；Strict 失败前的结果仍会提交，取消时丢弃尚未提交的批次。
 func ConvertWorld(source *cellerjava.World, target *cellerbedrock.World, options ConvertOptions) (Report, error) {
 	report := Report{Chunks: make(map[int32]uint64), Diagnostics: make(map[converter.DiagnosticKind]uint64)}
-	// 批次保留 8 MiB 编码记录，提交时数据库 batch 还要复制一份。
-	const batchBytes = 8 * 1024 * 1024
 	workers, err := pipeline.Workers(pipeline.Limit{
 		MemoryMiB: options.MemoryMiB,
 		Requested: options.Workers,
-		Reserved:  2 * batchBytes,
+		Reserved:  2 * bedrockout.BatchBytes,
 		TaskBytes: chunkTaskBytes,
 	})
 	if err != nil {
@@ -70,42 +68,12 @@ func ConvertWorld(source *cellerjava.World, target *cellerbedrock.World, options
 		ids = []int32{0}
 	}
 	for _, id := range ids {
-		dim, ok := dimensions[id]
+		dim, ok := javaout.Dimension(id)
 		if !ok {
 			return report, fmt.Errorf("unsupported Java dimension %d", id)
 		}
 		report.Chunks[id] = 0
-		var pending []bedrockOutput
-		size := 0
-		var writeErr error
-		flush := func() error {
-			if len(pending) == 0 {
-				return nil
-			}
-			chunks := make([]*cellerbedrock.EncodedChunk, len(pending))
-			for i, output := range pending {
-				chunks[i] = output.encoded
-			}
-			writeErr = target.WriteChunks(chunks, cellerbedrock.WriteChunksOptions{NewWorld: options.NewWorld})
-			if writeErr != nil {
-				return writeErr
-			}
-			for _, output := range pending {
-				for _, diagnostic := range output.diagnostics {
-					count := diagnostic.Count
-					if count == 0 {
-						count = 1
-					}
-					report.Diagnostics[diagnostic.Kind] += count
-				}
-				report.Entities += output.entities
-				report.Chunks[id]++
-			}
-			clear(pending)
-			pending = pending[:0]
-			size = 0
-			return nil
-		}
+		batch := bedrockout.NewBatch(target, options.NewWorld)
 		runErr := pipeline.Run(ctx, workers,
 			func(ctx context.Context, yield func(javaInput) error) error {
 				return source.Scan(dim, cellerjava.Terrain, func(pos celler.ChunkPos) error {
@@ -132,22 +100,19 @@ func ConvertWorld(source *cellerjava.World, target *cellerbedrock.World, options
 				if output.convertErr != nil {
 					return report.failed(id, output.pos, output.convertErr, options.Strict)
 				}
-				// 超大单柱单独提交；普通批次在加入下一柱前检查大小。
-				if size+output.encoded.Size() > batchBytes {
-					if err := flush(); err != nil {
-						return err
+				// 报告只计入已经提交的柱子。
+				return batch.Add(output.encoded, func() {
+					for _, diagnostic := range output.diagnostics {
+						report.Diagnostics[diagnostic.Kind] += max(diagnostic.Count, 1)
 					}
-				}
-				pending = append(pending, output)
-				size += output.encoded.Size()
-				if size >= batchBytes {
-					return flush()
-				}
-				return nil
+					report.Entities += output.entities
+					report.Chunks[id]++
+				})
 			},
 		)
-		if writeErr == nil && ctx.Err() == nil {
-			runErr = errors.Join(runErr, flush())
+		// 严格模式停下时，失败柱子之前的结果仍然提交；取消时丢弃未提交的批次。
+		if ctx.Err() == nil {
+			runErr = errors.Join(runErr, batch.Flush())
 		}
 		if runErr != nil {
 			return report, runErr
@@ -210,7 +175,7 @@ func encodeJavaChunk(ctx context.Context, input javaInput, dimension int32) (bed
 		}
 		actorErr = err
 	}
-	converted, err := converterjava.ConvertChunkWithActors(pos, dimension, chunk, actors)
+	converted, err := je2be.ConvertChunkWithActors(pos, dimension, chunk, actors)
 	if err != nil {
 		out.convertErr = err
 		return out, nil
@@ -220,8 +185,9 @@ func encodeJavaChunk(ctx context.Context, input javaInput, dimension int32) (bed
 	}
 	out.diagnostics = converted.Diagnostics
 	out.entities = uint64(len(converted.Actors))
-	out.encoded, err = EncodeChunk(converted)
-	return out, err
+	// 编码失败只影响这一根柱子，和转换失败一样交给写出侧按 Strict 处理。
+	out.encoded, out.convertErr = bedrockout.EncodeChunk(converted)
+	return out, nil
 }
 
 func (r *Report) failed(dimension int32, pos celler.ChunkPos, err error, strict bool) error {

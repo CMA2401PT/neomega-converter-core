@@ -2,21 +2,17 @@ package structure
 
 import (
 	"context"
-	"time"
 
 	"celler"
 	cellerjava "celler/java"
-	"celler/java/region"
-	"neomega-converter-core/export"
 	"neomega-converter-core/internal/pipeline"
-	nbt "neomega-nbt/presets/v1"
+	"neomega-converter-core/javaout"
 )
 
-// encodedChunk 是一根已经编码并压缩好的区块；entities 为空表示这根柱子没有实体。
+// encodedChunk 是一根已经编码并压缩好的区块。
 type encodedChunk struct {
-	pos      celler.ChunkPos
-	terrain  region.Record
-	entities *region.Record
+	pos     celler.ChunkPos
+	records javaout.Records
 }
 
 // writeBuckets 并行组装、编码和压缩片区，按空间顺序把结果交给当前协程写入。
@@ -39,13 +35,8 @@ func (s *blockSpool) writeBuckets(world *cellerjava.World, positions []bucketPos
 		s.encodeBucket,
 		func(chunks []encodedChunk) error {
 			for _, chunk := range chunks {
-				if err := world.WriteRaw(cellerjava.Overworld, cellerjava.Terrain, chunk.pos, chunk.terrain); err != nil {
+				if err := chunk.records.Write(world, cellerjava.Overworld, chunk.pos); err != nil {
 					return err
-				}
-				if chunk.entities != nil {
-					if err := world.WriteRaw(cellerjava.Overworld, cellerjava.Entities, chunk.pos, *chunk.entities); err != nil {
-						return err
-					}
 				}
 				count++
 			}
@@ -61,7 +52,6 @@ func (s *blockSpool) writeBuckets(world *cellerjava.World, positions []bucketPos
 // 片区之间只共享源数据。
 func (s *blockSpool) encodeBucket(ctx context.Context, p bucketPos) ([]encodedChunk, error) {
 	b := s.buckets[p]
-	timestamp := uint32(time.Now().Unix())
 	built := columns{}
 	if err := s.readBucket(ctx, p, b, func(x, y, z, length int32, state uint32) error {
 		block := s.palette[state]
@@ -81,7 +71,7 @@ func (s *blockSpool) encodeBucket(ctx context.Context, p bucketPos) ([]encodedCh
 		col := built.at(celler.ChunkPos{X: floorCell(pos[0], 16), Z: floorCell(pos[2], 16)})
 		col.entities = append(col.entities, entity)
 	}
-	height := [2]int32{minWorldY >> 4, (s.highY >> 4) - 1}
+	height := javaout.Height{Low: minWorldY >> 4, High: (s.highY >> 4) - 1}
 	output := make([]encodedChunk, 0, len(built))
 	for pos, col := range built {
 		if err := ctx.Err(); err != nil {
@@ -91,31 +81,11 @@ func (s *blockSpool) encodeBucket(ctx context.Context, p bucketPos) ([]encodedCh
 		if chunk == nil {
 			continue
 		}
-		terrain, err := export.ToJavaChunk(chunk, export.DataVersion, height)
+		records, err := javaout.Encode(chunk, height)
 		if err != nil {
 			return nil, err
 		}
-		data, err := terrain.Encode()
-		if err != nil {
-			return nil, err
-		}
-		record, err := region.Compress(data, timestamp)
-		if err != nil {
-			return nil, err
-		}
-		encoded := encodedChunk{pos: pos, terrain: record}
-		if document := export.ToJavaEntities(chunk, export.DataVersion); document != nil {
-			data, err := nbt.EncodeDocument(*document, nbt.EncodingBigEndian)
-			if err != nil {
-				return nil, err
-			}
-			record, err := region.Compress(data, timestamp)
-			if err != nil {
-				return nil, err
-			}
-			encoded.entities = &record
-		}
-		output = append(output, encoded)
+		output = append(output, encodedChunk{pos: pos, records: records})
 	}
 	return output, nil
 }
