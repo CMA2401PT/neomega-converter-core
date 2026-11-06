@@ -17,6 +17,12 @@ Java 来源保存 Java 状态；基岩来源保存基岩状态。Java 输出为 
 
 空数组、数组长度与体积不符、越界索引、损坏或截断的 NBT 返回错误。gzip 输入在根 NBT 结束后继续校验尾部，拒绝校验失败与多余数据。未使用的元数据通过丢弃接收器消费，不创建动态数组。需要保存的调色板及实体 NBT 仍占用与其数量相关的内存。
 
+## 有预算的写出
+
+空间片区是 128×128 的水平范围，每个片区内部按原来的先后顺序展开游程。Java 写出将不同片区交给独立任务，分别组装区块、编码 NBT 和压缩；单个写入者接收完成的记录并更新 region。交付不设积压队列，每个任务最多持有一个片区的结果。取消或写入失败时先停止并等待所有任务，再解除映射、关闭文件和清理目录。
+
+`Options.MemoryMiB` 默认 512，至少 64；它限制映射和并行工作量的估算，不是进程内存硬上限。每个 Java 任务按片区高度预留至少 32 MiB，预算足够时映射已经写完的压缩暂存文件。映射只读，直接借用对应范围，不复制完整文件或片段。预算不足时按偏移读入任务自己的固定缓冲。`Options.Workers` 的零值按 CPU 自动选择，最多 8 个；显式指定的上限仍会按剩余预算缩减。mcstructure 使用同一套范围读取，写入仍按单片区执行。
+
 ## 坐标和高度
 
 schem、schematic 和原版 nbt 的最小角放到原点；WorldEdit 的 Offset 不作为放置坐标。litematic 的 Position 是区域相对原点，Size 为负时沿该轴反向延伸，最小角为 Position + Size + 1。区域按名称排序，后一个区域覆盖之前的方块（包含空气）并移除被覆盖位置的旧方块实体。
@@ -52,7 +58,8 @@ go run ./apps/neomega-converter/cmd/structure-to-world -input /path/to/build.sch
 
 ```sh
 go build -o /tmp/structure-to-world ./apps/neomega-converter/cmd/structure-to-world
-/usr/bin/time -l /tmp/structure-to-world -input /ssd/build.schem -output /ssd/build-world
+/usr/bin/time -l /tmp/structure-to-world -input /ssd/build.schem -output /ssd/build-world \
+  -memory-mib 512 -workers 0
 ```
 
 Sponge 字段定义参照 [v2 规范](https://github.com/SpongePowered/Schematic-Specification/blob/master/versions/schematic-2.md)与 [v3 规范](https://github.com/SpongePowered/Schematic-Specification/blob/master/versions/schematic-3.md)。扩展高度使用 Java 1.21.4 的 dimension_type 数据结构和 pack_format 61。

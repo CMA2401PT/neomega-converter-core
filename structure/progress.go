@@ -10,7 +10,12 @@ type Progress struct {
 	ElapsedSeconds float64 `json:"elapsedSeconds"`
 }
 
-// Options 为转换调用方提供同步进度通知；回调应尽快返回。
+// Options 控制转换的内存预算、Java 写出并发数与同步进度通知。
 type Options struct {
+	// MemoryMiB 是映射与并行工作的预算；零值为 512，至少 64。不是进程 RSS 硬上限。
+	MemoryMiB int
+	// Workers 是 Java 写出并发数的上限；零值按 CPU 自动选择，仍受内存预算约束。
+	Workers int
+	// Progress 由转换调用协程串行通知；回调应尽快返回。
 	Progress func(Progress)
 }

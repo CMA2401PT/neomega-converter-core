@@ -34,6 +34,16 @@ func WorldDirectory(path string) string { return strings.TrimSuffix(path, filepa
 // ConvertFile 流式读取结构并生成原生存档。输出为空时使用源文件旁的同名目录。
 // 已有非空目录不会覆盖；转换成功前只写临时目录，失败不留下半成品世界。
 func ConvertFile(ctx context.Context, input, output string, options ...Options) (Result, error) {
+	opts := Options{MemoryMiB: 512}
+	if len(options) > 0 {
+		opts = options[0]
+		if opts.MemoryMiB == 0 {
+			opts.MemoryMiB = 512
+		}
+	}
+	if opts.MemoryMiB < 64 || opts.Workers < 0 {
+		return Result{}, fmt.Errorf("结构转换内存预算至少 64 MiB，workers 不能为负数")
+	}
 	started := time.Now()
 	var last time.Time
 	previousStage := ""
@@ -93,6 +103,8 @@ func ConvertFile(ctx context.Context, input, output string, options ...Options) 
 		}
 		defer sink.file.Close()
 		sink.progress = report
+		sink.memoryBytes = int64(opts.MemoryMiB) * 1024 * 1024
+		sink.workers = opts.Workers
 	}
 	var spawn [3]int32
 	switch kind {
@@ -105,7 +117,7 @@ func ConvertFile(ctx context.Context, input, output string, options ...Options) 
 	case "nbt":
 		spawn, err = streamJavaNBTFile(input, working, sink)
 	case "mcstructure":
-		err = convertMCStructure(ctx, input, outputDir, result.Name, report)
+		err = convertMCStructure(ctx, input, outputDir, result.Name, opts, report)
 	case "mcworld":
 		err = extractMCWorld(ctx, input, outputDir, report)
 	}

@@ -178,7 +178,7 @@ func (s *numberStream) open() (*runReader, error) {
 	if err != nil {
 		return nil, err
 	}
-	zipped, err := gzip.NewReader(f)
+	zipped, err := gzip.NewReader(bufio.NewReaderSize(f, 1024*1024))
 	if err != nil {
 		f.Close()
 		return nil, err

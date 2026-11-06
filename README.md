@@ -26,7 +26,7 @@ adapt.NewConverted(read, opts)        按坐标读取 Bedrock 柱子 → 缓存�
 export.ToJavaChunk / ToJavaEntities    ConvertedChunk → Java 区块 / Java 实体记录
 export.ConvertLevel(level)             Bedrock level.dat → Java level.dat
 export.ConvertWorld(src, dst, opts)    Bedrock 存档 → Java 存档，不跑 fixer
-structure.ConvertFile(ctx, input, output)  结构文件 → 原生 Java／Bedrock 存档目录；拒绝覆盖非空目录
+structure.ConvertFile(ctx, input, output, options...)  结构文件 → 原生 Java／Bedrock 存档目录；拒绝覆盖非空目录
 
 # Java → Bedrock
 je2be.ConvertChunk(chunk)              Java 整根柱子 → BedrockChunk, err
@@ -235,7 +235,11 @@ ConvertLevel(Level, 4189) → (level.dat, LevelReport, err)
 
 `output` 为空时，存档放在源文件旁去掉最后一个扩展名的同名文件夹，例如 `城堡.schem` → `城堡/`。非空目标目录返回错误。转换在相邻临时目录完成，成功后才发布目标目录；失败或取消会清理暂存内容。
 
-数组可能出现在尺寸和调色板之前，所以解析时先用固定缓冲接收并压缩暂存，元数据齐全后再消费。空间重排的总缓冲为 8 MiB，每次只组装一个 128×128 水平片区，最多 64 根区块柱。内存还包括调色板、实体 NBT、片区索引和当前片区的区块，因此不是固定的进程内存上限。临时数据与输出位于同一磁盘，性能测试应把源文件和输出都放在 SSD。
+数组可能出现在尺寸和调色板之前，所以解析时先用固定缓冲接收并压缩暂存，元数据齐全后再消费。空间重排的总缓冲为 8 MiB。写出阶段按 128×128 的水平片区并行组装、编码和压缩，每个任务最多展开 64 根区块柱，完成的压缩记录交给同一个写入者。片区内部保持源记录顺序，因此多区域覆盖结果不受任务完成顺序影响。
+
+可选的 `structure.Options{MemoryMiB: 512, Workers: 0}` 控制工作预算。预算先为片区工作区预留空间，余量足够时对已经写完的压缩暂存文件建立只读 mmap，即由操作系统按需映射文件页面，解压直接读取这些页面。Darwin、Linux 和 Windows 支持映射；预算不足或其他平台使用按偏移读取。映射大小从并发预算中扣除，再按片区高度限制任务数。`MemoryMiB` 的零值为 512，最小值为 64；`Workers` 的零值按 CPU 数自动选择，最多 8 个，显式值仍受预算限制。mcstructure 共用暂存读取方式，基岩写出仍为串行；mcworld 只逐条解压。
+
+预算不是进程 RSS 硬上限，内存还包含调色板、实体 NBT、索引和 Go 运行时。`Options.Progress` 由调用协程串行通知，取消时等待任务退出后才释放映射和临时文件。临时数据与输出位于同一磁盘，性能测试应把源文件和输出都放在 SSD。
 
 Java 输出使用 DataVersion 4189、空超平坦主世界和 plains 群系；普通实体写入独立 entities region。高度超出默认范围时整体平移。结构高于 384 格时附带 Java 1.21.4 的扩展高度数据包，支持最多 2096 格。Bedrock 保持原生主世界高度，高于 384 格时报错。位置、区域覆盖顺序及 NBT 保留范围见 [structure/NBT.md](structure/NBT.md)。
 

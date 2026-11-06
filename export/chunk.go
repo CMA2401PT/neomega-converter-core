@@ -48,8 +48,13 @@ func ToJavaChunk(chunk *converter.ConvertedChunk, dataVersion int32, height ...[
 		}
 		palette := source.Blocks.GetUsedPalette()
 		needs := make([]bool, len(palette))
+		anyNeeds := false
 		for i, block := range palette {
 			needs[i] = needsShapeUpdate(block.NameWithNameSpace())
+			anyNeeds = anyNeeds || needs[i]
+		}
+		if !anyNeeds {
+			continue
 		}
 		for index := range 4096 {
 			x, ly, z := index&15, index>>8, index>>4&15

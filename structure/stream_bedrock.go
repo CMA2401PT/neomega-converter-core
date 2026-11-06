@@ -14,6 +14,7 @@ import (
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	converter "neomega-converter-core"
+	"neomega-converter-core/internal/fileview"
 	beexport "neomega-converter-core/je2be/export"
 	rawnbt "neomega-nbt"
 	goencode "neomega-nbt/encoder-go-object"
@@ -70,7 +71,7 @@ type nativeStructure struct {
 }
 
 // convertMCStructure 保留基岩双层状态和条目版本，直接写基岩存档，不经过 Java 映射。
-func convertMCStructure(ctx context.Context, path, output, name string, report func(Progress)) error {
+func convertMCStructure(ctx context.Context, path, output, name string, options Options, report func(Progress)) error {
 	temp := filepath.Dir(output)
 	h := &nativeStructure{}
 	h.Structure.Indices = &layerStreams{dir: temp}
@@ -200,6 +201,12 @@ func convertMCStructure(ctx context.Context, path, output, name string, report f
 	if err := sink.writer.Flush(); err != nil {
 		return err
 	}
+	view, err := fileview.Open(sink.file, max(0, int64(options.MemoryMiB-64)*1024*1024))
+	if err != nil {
+		return err
+	}
+	defer view.Close()
+	sink.reader = view
 	world, err := bedrock.Open(output, bedrock.Options{})
 	if err != nil {
 		return err
@@ -226,7 +233,7 @@ func convertMCStructure(ctx context.Context, path, output, name string, report f
 			}
 			return chunk
 		}
-		err = sink.readBucket(pos, b, func(x, y, z, length int32, state uint32) error {
+		err = sink.readBucket(ctx, pos, b, func(x, y, z, length int32, state uint32) error {
 			layer, index := int(state)/len(palette), int(state)%len(palette)
 			for dx := int32(0); dx < length; dx++ {
 				p := celler.ChunkPos{X: (x + dx) >> 4, Z: z >> 4}

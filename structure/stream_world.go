@@ -9,13 +9,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"slices"
 
-	"celler"
 	"celler/bedrock"
 	cellerjava "celler/java"
 	"neomega-blocks/ir"
 	"neomega-converter-core/export"
+	"neomega-converter-core/internal/fileview"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -34,8 +35,11 @@ type bucket struct {
 
 // blockSpool 把源文件的扫描顺序转成小片区顺序。
 // 游程只拆到 128×128 的水平片区边界；8 MiB 缓冲写满后压缩落盘。
-// 最后每次展开一个片区，写成最多 64 根区块柱，不保留整张图的方块数组。
+// 写出任务各自展开一个片区，生成最多 64 根区块柱，不保留整张图的方块数组。
 type blockSpool struct {
+	reader      *fileview.View
+	memoryBytes int64
+	workers     int
 	progress    func(Progress)
 	ctx         context.Context
 	file        *os.File
@@ -54,7 +58,7 @@ func newBlockSpool(ctx context.Context, dir string) (*blockSpool, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &blockSpool{progress: func(Progress) {}, ctx: ctx, file: file, highY: 320, buckets: make(map[bucketPos]*bucket)}
+	s := &blockSpool{memoryBytes: 512 * 1024 * 1024, progress: func(Progress) {}, ctx: ctx, file: file, highY: 320, buckets: make(map[bucketPos]*bucket)}
 	s.writer = bufio.NewWriterSize(file, 1024*1024)
 	s.compressor, _ = flate.NewWriter(&s.compressed, flate.BestSpeed)
 	return s, nil
@@ -176,6 +180,14 @@ func (s *blockSpool) write(dir, name string, spawn [3]int32) (int, error) {
 	if err := s.writer.Flush(); err != nil {
 		return 0, err
 	}
+	// 按整个片区的高度预留调色板、编码结果和压缩工作区；这是并发估算，非堆上限。
+	workerBytes := max(int64(32*1024*1024), 128*128*int64(s.highY+64)*4)
+	view, err := fileview.Open(s.file, max(0, s.memoryBytes-workerBytes))
+	if err != nil {
+		return 0, err
+	}
+	defer view.Close()
+	s.reader = view
 	world, err := cellerjava.OpenDirectory(dir, cellerjava.Options{})
 	if err != nil {
 		return 0, err
@@ -191,44 +203,14 @@ func (s *blockSpool) write(dir, name string, spawn [3]int32) (int, error) {
 		}
 		return int(a.x - b.x)
 	})
-	count := 0
-	s.progress(Progress{Stage: "writing", Total: int64(len(positions))})
-	for index, p := range positions {
-		if err := s.ctx.Err(); err != nil {
-			return count, err
-		}
-		b := s.buckets[p]
-		columns := make(map[celler.ChunkPos]*column)
-		if err := s.readBucket(p, b, func(x, y, z, length int32, state uint32) error {
-			block := s.palette[state]
-			for i := int32(0); i < length; i++ {
-				place(columns, x+i, y, z, block)
-			}
-			return nil
-		}); err != nil {
-			return count, err
-		}
-
-		for _, tile := range b.tiles {
-			col := ensure(columns, tile.Pos.Chunk())
-			col.blockEntities = append(col.blockEntities, tile)
-		}
-		for _, entity := range b.entities {
-			pos, _ := float3(entity["Pos"])
-			col := ensure(columns, celler.ChunkPos{X: int32(floorDiv(pos[0], 16)), Z: int32(floorDiv(pos[2], 16))})
-			col.entities = append(col.entities, entity)
-		}
-		for pos, col := range columns {
-			chunk := col.converted(pos)
-			if chunk == nil {
-				continue
-			}
-			if err := writeJavaChunk(world, chunk, [2]int32{-4, (s.highY >> 4) - 1}); err != nil {
-				return count, err
-			}
-			count++
-		}
-		s.progress(Progress{Stage: "writing", Completed: int64(index + 1), Total: int64(len(positions))})
+	workers := s.workers
+	if workers == 0 {
+		workers = min(runtime.GOMAXPROCS(0), 8)
+	}
+	workers = min(workers, max(1, int((s.memoryBytes-view.MappedBytes)/workerBytes)))
+	count, err := s.writeBuckets(world, positions, workers)
+	if err != nil {
+		return count, err
 	}
 	level, _, err := export.ConvertLevel(bedrock.Level{NBT: nbt.Document{Value: nbt.Compound{
 		"LevelName": name, "SpawnX": spawn[0], "SpawnY": spawn[1], "SpawnZ": spawn[2],
@@ -249,19 +231,23 @@ func (s *blockSpool) write(dir, name string, spawn [3]int32) (int, error) {
 }
 
 // readBucket 依次解压一个片区的记录，Java 与 Bedrock 共用空间重排结果。
-func (s *blockSpool) readBucket(p bucketPos, b *bucket, visit func(x, y, z, length int32, state uint32) error) error {
+func (s *blockSpool) readBucket(ctx context.Context, p bucketPos, b *bucket, visit func(x, y, z, length int32, state uint32) error) error {
 	raw := make([]byte, 64*1024)
 	compressed := make([]byte, 128*1024)
 	reader := flate.NewReader(bytes.NewReader(nil))
 	defer reader.Close()
 	for _, part := range b.extents {
-		if _, err := s.file.ReadAt(compressed[:part.size], part.offset); err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := reader.(flate.Resetter).Reset(bytes.NewReader(compressed[:part.size]), nil); err != nil {
+		data, err := s.reader.ReadRange(part.offset, part.size, compressed)
+		if err != nil {
 			return err
 		}
-		_, err := io.ReadFull(reader, raw[:part.raw])
+		if err := reader.(flate.Resetter).Reset(bytes.NewReader(data), nil); err != nil {
+			return err
+		}
+		_, err = io.ReadFull(reader, raw[:part.raw])
 		if err != nil {
 			return err
 		}

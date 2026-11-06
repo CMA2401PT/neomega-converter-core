@@ -4,15 +4,12 @@ package structure
 
 import (
 	"fmt"
-	"time"
 
 	"celler"
 	cellerjava "celler/java"
-	"celler/java/region"
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	"neomega-converter-core"
-	"neomega-converter-core/export"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -125,33 +122,6 @@ func floorDiv(value, step float64) int {
 		q--
 	}
 	return q
-}
-
-// writeJavaChunk 将一根柱子的地形与普通实体分别写入对应的 region。
-func writeJavaChunk(world *cellerjava.World, chunk *converter.ConvertedChunk, height ...[2]int32) error {
-	terrain, err := export.ToJavaChunk(chunk, export.DataVersion, height...)
-	if err != nil {
-		return err
-	}
-	if err = world.WriteChunk(cellerjava.Overworld, terrain); err != nil {
-		return err
-	}
-	document := export.ToJavaEntities(chunk, export.DataVersion)
-	if document == nil {
-		return nil
-	}
-	data, err := nbt.EncodeDocument(*document, nbt.EncodingBigEndian)
-	if err != nil {
-		return err
-	}
-	record, err := region.Compress(data, uint32(time.Now().Unix()))
-	if err != nil {
-		return err
-	}
-	if err = world.WriteRaw(cellerjava.Overworld, cellerjava.Entities, chunk.Pos, record); err != nil {
-		return err
-	}
-	return nil
 }
 
 // heightOffset 尽量保留源高度；需要时整体平移，使 384 格高的结构也能完整放入主世界。
