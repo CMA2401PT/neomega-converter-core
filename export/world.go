@@ -1,6 +1,7 @@
 package export
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -14,10 +15,16 @@ import (
 	"neomega-blocks/ir"
 	"neomega-converter-core"
 	"neomega-converter-core/be2je"
+	"neomega-converter-core/internal/pipeline"
 	nbt "neomega-nbt/presets/v1"
 )
 
 type ConvertOptions struct {
+	// Context 控制读取、计算与写出；nil 使用 Background。返回前等待所有任务退出。
+	Context context.Context
+	// MemoryMiB 默认 512、至少 64；Workers 为零时自动选择，预算按每任务 64 MiB 估算。
+	MemoryMiB int
+	Workers   int
 	// 空维度列表选择主世界；版本零值选择本包目标版本，Strict 只控制转换失败的柱子。
 	Dimensions  []int32
 	Strict      bool
@@ -76,7 +83,15 @@ func finalizedState(chunk *cellerbedrock.Chunk) int32 {
 }
 
 func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options ConvertOptions) (report Report, err error) {
-	// 扫描回调只持有一根柱子，转换和可选修复之间通过磁盘解耦。
+	// 源扫描与目标写入各有唯一所有者，转换、NBT 编码和压缩在独立任务中执行。
+	workers, err := pipeline.Workers(options.MemoryMiB, options.Workers, 0, 64*1024*1024)
+	if err != nil {
+		return report, err
+	}
+	ctx := options.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	defer func() { err = errors.Join(err, target.Flush()) }()
 	report = Report{
 		Chunks: make(map[int32]uint64), Diagnostics: make(map[converter.DiagnosticKind]uint64),
@@ -129,94 +144,148 @@ func ConvertWorld(source *cellerbedrock.World, target *cellerjava.World, options
 			report.UnknownStates = report.UnknownStates[:10]
 		}
 	}()
-	err = source.ScanChunks(func(sourceChunk *cellerbedrock.Chunk) error {
-		dim, included := selected[sourceChunk.Dimension]
-		if !included {
-			return nil
-		}
-		if !options.IncludeUnfinished && finalizedState(sourceChunk) < 2 {
-			report.Skipped++
-			return nil
-		}
-		rawActors, actorErr := source.ReadChunkActors(sourceChunk.Dimension, sourceChunk.Pos)
-		if actorErr != nil {
-			// 实体记录坏了也要保住地形：转换该柱，问题记进诊断。
-			actorErr = fmt.Errorf("actors: %w", actorErr)
-			rawActors = nil
-		}
-		extra := make([]nbt.Compound, 0, len(rawActors))
-		for _, document := range rawActors {
-			extra = append(extra, document.Value)
-		}
-		chunk, err := be2je.ConvertChunkWithActors(sourceChunk, extra)
-		if err != nil {
-			report.FailedChunks = append(report.FailedChunks, FailedChunk{
-				Dimension: sourceChunk.Dimension,
-				Pos:       sourceChunk.Pos,
-				Err:       err,
+	err = pipeline.Run(ctx, workers,
+		func(ctx context.Context, yield func(bedrockInput) error) error {
+			return source.ScanChunks(func(raw *cellerbedrock.Chunk) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if _, included := selected[raw.Dimension]; !included {
+					return nil
+				}
+				input := bedrockInput{chunk: raw}
+				input.skipped = !options.IncludeUnfinished && finalizedState(raw) < 2
+				if !input.skipped {
+					documents, err := source.ReadChunkActors(raw.Dimension, raw.Pos)
+					if err != nil {
+						input.actorErr = fmt.Errorf("actors: %w", err)
+					} else {
+						for _, document := range documents {
+							input.actors = append(input.actors, document.Value)
+						}
+					}
+				}
+				return yield(input)
 			})
-			if options.Strict {
-				return fmt.Errorf("dimension %d chunk %v: %w", sourceChunk.Dimension, sourceChunk.Pos, err)
+		},
+		func(ctx context.Context, input bedrockInput) (javaOutput, error) {
+			return encodeBedrockChunk(ctx, input, version)
+		},
+		func(output javaOutput) error {
+			if output.skipped {
+				report.Skipped++
+				return nil
 			}
+			for _, diagnostic := range output.diagnostics {
+				count := diagnostic.Count
+				if count == 0 {
+					count = 1
+				}
+				report.Diagnostics[diagnostic.Kind] += count
+				switch diagnostic.Kind {
+				case converter.UnknownBlock:
+					unknown[diagnostic.State] += count
+				case converter.UnsupportedBlockEntity:
+					report.UnsupportedBlockEntities[diagnostic.BlockEntityID] += count
+				case converter.UnknownItem:
+					unknownItems[diagnostic.ItemID] += count
+				}
+			}
+			report.DroppedSections[output.dimension] += output.dropped
+			if output.convertErr != nil {
+				report.FailedChunks = append(report.FailedChunks, FailedChunk{Dimension: output.dimension, Pos: output.pos, Err: output.convertErr})
+				if options.Strict {
+					return fmt.Errorf("dimension %d chunk %v: %w", output.dimension, output.pos, output.convertErr)
+				}
+				return nil
+			}
+			dim := selected[output.dimension]
+			if err := target.WriteRaw(dim, cellerjava.Terrain, output.pos, output.terrain); err != nil {
+				return err
+			}
+			if output.entities != nil {
+				if err := target.WriteRaw(dim, cellerjava.Entities, output.pos, *output.entities); err != nil {
+					return err
+				}
+			}
+			report.Entities += output.entityCount
+			report.BlockEntities += output.tileCount
+			report.Chunks[output.dimension]++
 			return nil
-		}
-		if actorErr != nil {
-			chunk.Diagnostics = append(chunk.Diagnostics, converter.Diagnostic{Kind: converter.NBTError, Err: actorErr})
-		}
-		for _, diagnostic := range chunk.Diagnostics {
-			count := diagnostic.Count
-			if count == 0 {
-				count = 1
-			}
-			report.Diagnostics[diagnostic.Kind] += count
-			switch diagnostic.Kind {
-			case converter.UnknownBlock:
-				unknown[diagnostic.State] += count
-			case converter.UnsupportedBlockEntity:
-				report.UnsupportedBlockEntities[diagnostic.BlockEntityID] += count
-			case converter.UnknownItem:
-				unknownItems[diagnostic.ItemID] += count
-			}
-		}
-		low, high := sectionBounds(chunk.Dimension)
-		for y := range chunk.Sections {
-			if y < low || y > high {
-				report.DroppedSections[chunk.Dimension]++
-			}
-		}
-		terrain, err := ToJavaChunk(chunk, version)
-		if err != nil {
-			report.FailedChunks = append(report.FailedChunks, FailedChunk{
-				Dimension: sourceChunk.Dimension,
-				Pos:       sourceChunk.Pos,
-				Err:       err,
-			})
-			if options.Strict {
-				return fmt.Errorf("dimension %d chunk %v: %w", sourceChunk.Dimension, sourceChunk.Pos, err)
-			}
-			return nil
-		}
-		if err = target.WriteChunk(dim, terrain); err != nil {
-			return err
-		}
-		if document := ToJavaEntities(chunk, version); document != nil {
-			data, err := nbt.EncodeDocument(*document, nbt.EncodingBigEndian)
-			if err != nil {
-				return err
-			}
-			record, err := region.Compress(data, uint32(time.Now().Unix()))
-			if err != nil {
-				return err
-			}
-			if err = target.WriteRaw(dim, cellerjava.Entities, chunk.Pos, record); err != nil {
-				return err
-			}
-			report.Entities += uint64(len(chunk.Entities))
-		}
-		entities, _ := nbt.Compounds(terrain.NBT.Value["block_entities"])
-		report.BlockEntities += uint64(len(entities))
-		report.Chunks[chunk.Dimension]++
-		return nil
-	})
+		},
+	)
 	return report, err
+}
+
+// 扫描者交付的记录与实体只属于一个任务，不借用迭代器的可变缓冲。
+type bedrockInput struct {
+	chunk    *cellerbedrock.Chunk
+	actors   []nbt.Compound
+	actorErr error
+	skipped  bool
+}
+
+type javaOutput struct {
+	pos                             celler.ChunkPos
+	dimension                       int32
+	terrain                         region.Record
+	entities                        *region.Record
+	diagnostics                     []converter.Diagnostic
+	dropped, tileCount, entityCount uint64
+	skipped                         bool
+	convertErr                      error
+}
+
+// encodeBedrockChunk 在任务内完成转换和压缩；只有轻量诊断和压缩记录交给写入者。
+func encodeBedrockChunk(ctx context.Context, input bedrockInput, version int32) (javaOutput, error) {
+	out := javaOutput{pos: input.chunk.Pos, dimension: input.chunk.Dimension, skipped: input.skipped}
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
+	if input.skipped {
+		return out, nil
+	}
+	chunk, err := be2je.ConvertChunkWithActors(input.chunk, input.actors)
+	if err != nil {
+		out.convertErr = err
+		return out, nil
+	}
+	if input.actorErr != nil {
+		chunk.Diagnostics = append(chunk.Diagnostics, converter.Diagnostic{Kind: converter.NBTError, Err: input.actorErr})
+	}
+	out.diagnostics = chunk.Diagnostics
+	low, high := sectionBounds(chunk.Dimension)
+	for y := range chunk.Sections {
+		if y < low || y > high {
+			out.dropped++
+		}
+	}
+	terrain, err := ToJavaChunk(chunk, version)
+	if err != nil {
+		out.convertErr = err
+		return out, nil
+	}
+	data, err := terrain.Encode()
+	if err != nil {
+		return out, err
+	}
+	out.terrain, err = region.Compress(data, uint32(time.Now().Unix()))
+	if err != nil {
+		return out, err
+	}
+	if document := ToJavaEntities(chunk, version); document != nil {
+		data, err := nbt.EncodeDocument(*document, nbt.EncodingBigEndian)
+		if err != nil {
+			return out, err
+		}
+		record, err := region.Compress(data, uint32(time.Now().Unix()))
+		if err != nil {
+			return out, err
+		}
+		out.entities = &record
+		out.entityCount = uint64(len(chunk.Entities))
+	}
+	entities, _ := nbt.Compounds(terrain.NBT.Value["block_entities"])
+	out.tileCount = uint64(len(entities))
+	return out, nil
 }

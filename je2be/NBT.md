@@ -43,3 +43,7 @@
 `je2be/export` 写 Bedrock 存档：subchunk、`0x31` 方块实体、`Data3D` 群系、
 `digp`/`actorprefix` 实体、`0x2C`/`0x36` 记录和 `level.dat`。
 群系按目标维度补齐到 24（主世界）或 16（下界/末地）段。
+
+`EncodeChunk` 将这些字段编码成独占的原生记录，不操作数据库，因此可并行调用。`WriteChunk` 将同一柱的地形和普通实体原子提交到一个 LevelDB batch。整图转换将记录按源顺序合并为有界批次，再交给单个数据库写入者；序列化后的 NBT 标签类型和实体键保持不变。
+
+新建目标可使用 `ConvertOptions.NewWorld` 跳过清理旧区块记录的扫描。默认模式保留替换语义。`MemoryMiB`、`Workers` 和 `Context` 控制预算、任务上限和取消；详细生命周期见模块 README。

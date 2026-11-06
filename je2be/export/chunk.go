@@ -9,8 +9,8 @@ import (
 	nbt "neomega-nbt/presets/v1"
 )
 
-// WriteChunk 把一根转换结果写成 Bedrock 柱子：subchunk、方块实体、群系和版本记录。
-func WriteChunk(world *cellerbedrock.World, chunk *converter.BedrockChunk) error {
+// EncodeChunk 把转换结果编码为独占的 Bedrock 原生记录，不访问数据库，可在独立任务中调用。
+func EncodeChunk(chunk *converter.BedrockChunk) (*cellerbedrock.EncodedChunk, error) {
 	target := cellerbedrock.NewChunk(chunk.Pos, chunk.Dimension)
 	for y, section := range chunk.Sections {
 		layers := make([]*cellerbedrock.Layer, len(section.Layers))
@@ -18,7 +18,7 @@ func WriteChunk(world *cellerbedrock.World, chunk *converter.BedrockChunk) error
 			layers[index] = &cellerbedrock.Layer{Blocks: palette}
 		}
 		if err := target.SetSection(&cellerbedrock.Section{Y: y, Version: sectionVersion, Layers: layers}); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if len(chunk.BlockEntities) > 0 {
@@ -27,27 +27,34 @@ func WriteChunk(world *cellerbedrock.World, chunk *converter.BedrockChunk) error
 			documents = append(documents, nbt.Document{Value: entity})
 		}
 		if err := target.SetBlockEntities(documents); err != nil {
-			return err
+			return nil, err
 		}
 	}
+	var actors []cellerbedrock.Actor
 	if len(chunk.Actors) > 0 {
-		actors := make([]cellerbedrock.Actor, len(chunk.Actors))
+		actors = make([]cellerbedrock.Actor, len(chunk.Actors))
 		for index, actor := range chunk.Actors {
 			actors[index] = cellerbedrock.Actor{ID: actor.ID, NBT: nbt.Document{Value: actor.NBT}}
-		}
-		if err := world.WriteChunkActors(chunk.Dimension, chunk.Pos, actors); err != nil {
-			return err
 		}
 	}
 	if biomes, ok := biomes3D(chunk); ok {
 		if err := target.SetBiomes3D(biomes); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	// 现代 Bedrock 的区块版本与完成标记；它们决定游戏是否重新生成这个柱子。
 	target.Records[string([]byte{cellerbedrock.TagVersion})] = []byte{chunkVersion}
 	target.Records[string([]byte{cellerbedrock.TagFinalizedState})] = []byte{2}
-	return world.WriteChunk(target, nil)
+	return cellerbedrock.EncodeChunk(target, actors)
+}
+
+// WriteChunk 编码并替换一根 Bedrock 柱子，地形和实体在同一个批次中提交。
+func WriteChunk(world *cellerbedrock.World, chunk *converter.BedrockChunk) error {
+	encoded, err := EncodeChunk(chunk)
+	if err != nil {
+		return err
+	}
+	return world.WriteChunks([]*cellerbedrock.EncodedChunk{encoded}, cellerbedrock.WriteChunksOptions{})
 }
 
 // biomes3D 从每个 section 的 16³ 群系调色板拼出 Data3D。

@@ -1,11 +1,13 @@
 package structure
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"celler"
 	"celler/bedrock"
@@ -13,6 +15,7 @@ import (
 	"celler/layer_storage"
 	"neomega-blocks/ir"
 	converter "neomega-converter-core"
+	"neomega-converter-core/internal/pipeline"
 	beexport "neomega-converter-core/je2be/export"
 	rawnbt "neomega-nbt"
 	goencode "neomega-nbt/encoder-go-object"
@@ -207,8 +210,9 @@ func convertMCStructure(j *job) error {
 		value["Pos"] = []float32{float32(pos[0]) + float32(h.Origin[0]), float32(pos[1]) + float32(h.Origin[1]), float32(pos[2]) + float32(h.Origin[2])}
 		sink.addEntity(value)
 	}
-	// 写出阶段要给每个片区的区块和压缩留出 64 MiB，其余预算才用于映射记录文件。
-	view, err := sink.seal(64 * 1024 * 1024)
+	// 双层区块工作区预留 64 MiB，写入批次与合并副本预留 16 MiB，其余才用于映射。
+	const batchBytes = 8 * 1024 * 1024
+	view, err := sink.seal(64*1024*1024 + 2*batchBytes)
 	if err != nil {
 		return err
 	}
@@ -223,62 +227,87 @@ func convertMCStructure(j *job) error {
 			world.Close()
 		}
 	}()
-	done := int64(0)
-	j.report(Progress{Stage: "writing", Total: int64(len(sink.buckets))})
-	actorID := int64(1)
-	for pos, b := range sink.buckets {
-		if err := j.ctx.Err(); err != nil {
+	workers, err := pipeline.Workers(j.opts.MemoryMiB, j.opts.Workers, view.MappedBytes+2*batchBytes, 64*1024*1024)
+	if err != nil {
+		return err
+	}
+	positions := make([]bucketPos, 0, len(sink.buckets))
+	for pos := range sink.buckets {
+		positions = append(positions, pos)
+	}
+	slices.SortFunc(positions, func(a, b bucketPos) int {
+		if a.z != b.z {
+			return int(a.z - b.z)
+		}
+		return int(a.x - b.x)
+	})
+	// 实体 ID 按稳定片区顺序分配，各任务拿到自己的连续编号范围。
+	type task struct {
+		pos          bucketPos
+		firstActorID int64
+	}
+	var pending []*bedrock.EncodedChunk
+	size := 0
+	flush := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		if err := world.WriteChunks(pending, bedrock.WriteChunksOptions{NewWorld: true}); err != nil {
 			return err
 		}
-		chunks := map[celler.ChunkPos]*converter.BedrockChunk{}
-		chunkAt := func(p celler.ChunkPos) *converter.BedrockChunk {
-			chunk := chunks[p]
-			if chunk == nil {
-				chunk = &converter.BedrockChunk{Pos: p, Sections: map[int32]*converter.BedrockSection{}}
-				chunks[p] = chunk
-			}
-			return chunk
-		}
-		err = sink.readBucket(j.ctx, pos, b, func(x, y, z, length int32, state uint32) error {
-			layer, index := int(state)/layerStride, int(state)%layerStride
-			for dx := int32(0); dx < length; dx++ {
-				chunk := chunkAt(celler.ChunkPos{X: (x + dx) >> 4, Z: z >> 4})
-				section := chunk.Sections[y>>4]
-				if section == nil {
-					empty := bedrock.Block{State: air, Version: blocks[index].Version}
-					section = &converter.BedrockSection{Layers: []*layer_storage.Palette[bedrock.Block]{
-						layer_storage.MakePaletteStorage(empty),
-						layer_storage.MakePaletteStorage(empty),
-					}}
-					chunk.Sections[y>>4] = section
+		clear(pending)
+		pending = pending[:0]
+		size = 0
+		return nil
+	}
+	done := int64(0)
+	j.report(Progress{Stage: "writing", Total: int64(len(positions))})
+	err = pipeline.Run(j.ctx, workers,
+		func(ctx context.Context, yield func(task) error) error {
+			actorID := int64(1)
+			for _, pos := range positions {
+				if err := ctx.Err(); err != nil {
+					return err
 				}
-				section.Layers[layer].Set(layer_storage.At(x+dx, y, z), blocks[index])
+				current := task{pos: pos, firstActorID: actorID}
+				actorID += int64(len(sink.buckets[pos].entities))
+				if err := yield(current); err != nil {
+					return err
+				}
 			}
 			return nil
-		})
-		if err != nil {
-			return err
-		}
-		for _, tile := range b.tiles {
-			chunk := chunkAt(tile.Pos.Chunk())
-			chunk.BlockEntities = append(chunk.BlockEntities, tile.NBT)
-		}
-		for _, entity := range b.entities {
-			pos, _ := nbtFloat3(entity["Pos"])
-			chunk := chunkAt(celler.ChunkPos{X: floorCell(pos[0], 16), Z: floorCell(pos[2], 16)})
-			var key [8]byte
-			binary.LittleEndian.PutUint64(key[:], uint64(actorID))
-			entity["UniqueID"] = actorID
-			actorID++
-			chunk.Actors = append(chunk.Actors, converter.BedrockActor{ID: key, NBT: entity})
-		}
-		for _, chunk := range chunks {
-			if err := beexport.WriteChunk(world, chunk); err != nil {
-				return err
+		},
+		func(ctx context.Context, current task) ([]*bedrock.EncodedChunk, error) {
+			return sink.encodeBedrockBucket(ctx, current.pos, sink.buckets[current.pos], current.firstActorID, blocks, layerStride)
+		},
+		func(chunks []*bedrock.EncodedChunk) error {
+			for _, chunk := range chunks {
+				if size+chunk.Size() > batchBytes {
+					if err := flush(); err != nil {
+						return err
+					}
+				}
+				pending = append(pending, chunk)
+				size += chunk.Size()
+				if size >= batchBytes {
+					if err := flush(); err != nil {
+						return err
+					}
+				}
 			}
-		}
-		done++
-		j.report(Progress{Stage: "writing", Completed: done, Total: int64(len(sink.buckets))})
+			done++
+			j.report(Progress{Stage: "writing", Completed: done, Total: int64(len(positions))})
+			return nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if err := j.ctx.Err(); err != nil {
+		return err
+	}
+	if err := flush(); err != nil {
+		return err
 	}
 	maximum := [3]int32{h.Origin[0] + h.Size[0], h.Origin[1] + h.Size[1], h.Origin[2] + h.Size[2]}
 	j.spawn = spawnPoint(h.Origin, maximum)
@@ -296,4 +325,71 @@ func convertMCStructure(j *job) error {
 	}
 	closed = true
 	return world.Close()
+}
+
+// encodeBedrockBucket 独立展开一个片区的双层方块，编码完成后交付原生数据库记录。
+// actorID 是本片区预分配的首个实体编号，任务之间无需共享可变计数器。
+func (sink *blockSpool) encodeBedrockBucket(
+	ctx context.Context,
+	pos bucketPos,
+	b *bucket,
+	actorID int64,
+	blocks []bedrock.Block,
+	layerStride int,
+) ([]*bedrock.EncodedChunk, error) {
+	chunks := map[celler.ChunkPos]*converter.BedrockChunk{}
+	chunkAt := func(p celler.ChunkPos) *converter.BedrockChunk {
+		chunk := chunks[p]
+		if chunk == nil {
+			chunk = &converter.BedrockChunk{Pos: p, Sections: map[int32]*converter.BedrockSection{}}
+			chunks[p] = chunk
+		}
+		return chunk
+	}
+	err := sink.readBucket(ctx, pos, b, func(x, y, z, length int32, state uint32) error {
+		layer, index := int(state)/layerStride, int(state)%layerStride
+		for dx := int32(0); dx < length; dx++ {
+			chunk := chunkAt(celler.ChunkPos{X: (x + dx) >> 4, Z: z >> 4})
+			section := chunk.Sections[y>>4]
+			if section == nil {
+				empty := bedrock.Block{State: air, Version: blocks[index].Version}
+				section = &converter.BedrockSection{Layers: []*layer_storage.Palette[bedrock.Block]{
+					layer_storage.MakePaletteStorage(empty),
+					layer_storage.MakePaletteStorage(empty),
+				}}
+				chunk.Sections[y>>4] = section
+			}
+			section.Layers[layer].Set(layer_storage.At(x+dx, y, z), blocks[index])
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, tile := range b.tiles {
+		chunk := chunkAt(tile.Pos.Chunk())
+		chunk.BlockEntities = append(chunk.BlockEntities, tile.NBT)
+	}
+	for _, source := range b.entities {
+		entity := maps.Clone(source)
+		pos, _ := nbtFloat3(entity["Pos"])
+		chunk := chunkAt(celler.ChunkPos{X: floorCell(pos[0], 16), Z: floorCell(pos[2], 16)})
+		var key [8]byte
+		binary.LittleEndian.PutUint64(key[:], uint64(actorID))
+		entity["UniqueID"] = actorID
+		actorID++
+		chunk.Actors = append(chunk.Actors, converter.BedrockActor{ID: key, NBT: entity})
+	}
+	output := make([]*bedrock.EncodedChunk, 0, len(chunks))
+	for _, chunk := range chunks {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		encoded, err := beexport.EncodeChunk(chunk)
+		if err != nil {
+			return nil, err
+		}
+		output = append(output, encoded)
+	}
+	return output, nil
 }

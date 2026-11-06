@@ -182,14 +182,16 @@ ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *ConvertedCh
 
 ## 导出 Java 存档
 
-`export.ConvertWorld` 扫描源世界并逐根写出 Java 柱子，返回转换报告。
+`export.ConvertWorld` 扫描源世界，将独占的区块记录交给并行任务完成转换、NBT 编码和压缩，再由调用协程按源顺序写出并合并报告。源与目标句柄分别由一个协程使用。严格模式按源顺序停止，后面的任务即使先完成，也不会越过失败柱子写出。
+
+`export.ConvertOptions` 和反向的 `je2be/export.ConvertOptions` 都支持 `MemoryMiB`、`Workers` 和 `Context`。内存预算零值为 512 MiB，至少 64 MiB；并发零值按 CPU 自动选择，最多 8 个。每个存档转换任务按 64 MiB 工作区估算并发，至少执行一个任务，因此预算不是进程 RSS 硬上限。任务窗口最多保留与实际并发数相同的未交付输入和结果，另有生产者正在读取的一根柱子；慢任务不会造成无界积压。`Context` 为 nil 时使用 Background，返回前等待所有读取和计算退出。
 
 ```text
 ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict, IncludeUnfinished}) → (Report, err)
   逐根柱子：ScanChunks → 跳过未完成柱子 → ConvertChunk → ToJavaChunk / ToJavaEntities → 写 region / entities
   默认跳过 0x36 FinalizedState < 2 的柱子；记录缺失按已完成处理，和 mcconv 一致
   读取 digp/actorprefix 失败只记 nbt_error 并继续写出该柱地形
-  section 解码失败或单柱编码失败记 FailedChunks；写盘失败中止整图
+  区块转换或目标结构构建失败记 FailedChunks；NBT 序列化、压缩或写盘失败中止整图
   不跑 fixer；需要按邻居重算形状的格子登记进 PostProcessing，游戏加载区块时重算
     登记：栅栏、栅栏门、玻璃板、铁栏杆、楼梯、墙、红石线、绊线、紫颂植物
     其余方块不登记：重算会让缺支撑的方块掉落
@@ -235,9 +237,9 @@ ConvertLevel(Level, 4189) → (level.dat, LevelReport, err)
 
 `output` 为空时，存档放在源文件旁去掉最后一个扩展名的同名文件夹，例如 `城堡.schem` → `城堡/`。非空目标目录返回错误。转换在相邻临时目录完成，成功后才发布目标目录；失败或取消会清理暂存内容。
 
-数组可能出现在尺寸和调色板之前，所以解析时先用固定缓冲接收并压缩暂存，元数据齐全后再消费。空间重排的总缓冲为 8 MiB。写出阶段按 128×128 的水平片区并行组装、编码和压缩，每个任务最多展开 64 根区块柱，完成的压缩记录交给同一个写入者。片区内部保持源记录顺序，因此多区域覆盖结果不受任务完成顺序影响。
+数组可能出现在尺寸和调色板之前，所以解析时先用固定缓冲接收并压缩暂存，元数据齐全后再消费。空间重排的总缓冲为 8 MiB。写出阶段按 128×128 的水平片区并行组装、编码和压缩，每个任务最多展开 64 根区块柱，Java 压缩记录或 Bedrock 编码记录按片区顺序交给同一个写入者。片区内部保持源记录顺序，因此多区域覆盖结果不受任务完成顺序影响。
 
-可选的 `structure.Options{MemoryMiB: 512, Workers: 0}` 控制工作预算。预算先为片区工作区预留空间，余量足够时对已经写完的压缩暂存文件建立只读 mmap，即由操作系统按需映射文件页面，解压直接读取这些页面。Darwin、Linux 和 Windows 支持映射；预算不足或其他平台使用按偏移读取。映射大小从并发预算中扣除，再按片区高度限制任务数。`MemoryMiB` 的零值为 512，最小值为 64；`Workers` 的零值按 CPU 数自动选择，最多 8 个，显式值仍受预算限制。mcstructure 共用暂存读取方式，基岩写出仍为串行；mcworld 只逐条解压。
+可选的 `structure.Options{MemoryMiB: 512, Workers: 0}` 控制工作预算。预算先为片区工作区预留空间，余量足够时对已经写完的压缩暂存文件建立只读 mmap，即由操作系统按需映射文件页面，解压直接读取这些页面。Darwin、Linux 和 Windows 支持映射；预算不足或其他平台使用按偏移读取。映射大小从并发预算中扣除，再按片区高度限制任务数。`MemoryMiB` 的零值为 512，最小值为 64；`Workers` 的零值按 CPU 数自动选择，最多 8 个，显式值仍受预算限制。mcstructure 共用暂存读取和有界调度，双层片区各预留 64 MiB 工作区，并为 8 MiB 数据库批次及合并副本预留 16 MiB。基岩区块与实体共同批量提交；mcworld 只逐条解压。
 
 预算不是进程 RSS 硬上限，内存还包含调色板、实体 NBT、索引和 Go 运行时。`Options.Progress` 由调用协程串行通知，取消时等待任务退出后才释放映射和临时文件。临时数据与输出位于同一磁盘，性能测试应把源文件和输出都放在 SSD。
 
@@ -342,6 +344,10 @@ go run ./neomega-converter-core/examples/convert-chunk
 
 `je2be.ConvertChunk` / `je2be.ConvertChunkWithActors` 把 Java 柱子转成
 `converter.BedrockChunk`，`je2be/export` 写出 Bedrock 区块、实体和 `level.dat`。
+源 Java 句柄只读取独占的压缩记录，解压、NBT 解析、转换和 Bedrock 编码由任务并行完成。写入者按源顺序将编码记录合并到最多 8 MiB 的批次，超大单柱单独提交；批次提交时预留一份合并副本。报告只计入已提交的柱子。严格模式会提交失败柱子之前的待写结果；取消时丢弃未提交批次，已写出的内容仍然保留。
+
+`je2be/export.EncodeChunk` 只生成原生记录，mcstructure 与存档互转共用它。普通 `WriteChunk` 使用相同编码能力，将地形和实体在同一批次中替换。`ConvertOptions.NewWorld` 默认为 false，保留已有区块的清理语义；明确新建世界时设为 true 可省去旧记录扫描。命令行和结构转换器只写新目标，因此会启用该选项。
+
 反方向不共用 `ConvertedChunk`，也不共用方块实体 Input；两个方向的 IR 状态属于不同
 hash 空间。总览见 [je2be/NBT.md](je2be/NBT.md)，命令行见
 [apps/neomega-converter](../apps/neomega-converter/README.md)。

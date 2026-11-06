@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"slices"
 
 	"celler/bedrock"
@@ -17,6 +16,7 @@ import (
 	"neomega-blocks/ir"
 	"neomega-converter-core/export"
 	"neomega-converter-core/internal/fileview"
+	"neomega-converter-core/internal/pipeline"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -201,7 +201,7 @@ func (s *blockSpool) addEntity(entity nbt.Compound) {
 }
 
 // seal 结束暂存：刷出剩余游程，把记录文件映射成只读视图供 readBucket 读取。
-// reserveBytes 留给写出阶段，不参与映射；映射失败时仍按偏移读取。
+// reserveBytes 留给写出阶段，不参与映射；预算不足或平台未实现映射时按偏移读取。
 func (s *blockSpool) seal(reserveBytes int64) (*fileview.View, error) {
 	for _, b := range s.buckets {
 		if err := s.flush(b); err != nil {
@@ -253,11 +253,10 @@ func (s *blockSpool) writeWorld(dir, name string, spawn [3]int32) (int, error) {
 		}
 		return int(a.x - b.x)
 	})
-	workers := s.workers
-	if workers == 0 {
-		workers = min(runtime.GOMAXPROCS(0), 8)
+	workers, err := pipeline.Workers(int(s.memoryBytes/(1024*1024)), s.workers, view.MappedBytes, workerBytes)
+	if err != nil {
+		return 0, err
 	}
-	workers = min(workers, max(1, int((s.memoryBytes-view.MappedBytes)/workerBytes)))
 	count, err := s.writeBuckets(world, positions, workers)
 	if err != nil {
 		return count, err
