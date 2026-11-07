@@ -389,3 +389,7 @@ go run ./neomega-converter-core/examples/convert-chunk
 
 总览见 [je2be/NBT.md](je2be/NBT.md)，记录格式见 [bedrockout/NBT.md](bedrockout/NBT.md)，命令行见
 [apps/neomega-converter](../apps/neomega-converter/README.md)。
+
+### 展示框的预览物品目录
+
+`be2je.ConvertChunkWithOptions` 的 `ConvertOptions.FrameItemResolver` 和 `adapt.Options.FrameItemResolver` 可显式接入调用方的物品 ID 目录，保留原有组件校验和失败诊断。nil 保持默认行为；回调只读访问源物品，并须支持并发调用。此选项仅用于展示框，默认整图转换输出版本保持原有约定。

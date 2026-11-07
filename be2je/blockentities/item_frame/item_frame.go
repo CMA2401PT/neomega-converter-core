@@ -58,7 +58,7 @@ func Convert(input blockentities.Input) (blockentities.Result, error) {
 		"UUID":     uuid,
 	}
 	if item, ok := input.Source["Item"].(nbt.Compound); ok {
-		if converted := items.ConvertItemReported(item, input.ReportItem); converted != nil {
+		if converted := items.ConvertItemWithResolver(item, input.ReportItem, input.FrameItemResolver); converted != nil {
 			delete(converted, "Slot")
 			entity["Item"] = converted
 			rotation, _ := input.Source["ItemRotation"].(float32)

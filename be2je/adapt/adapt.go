@@ -9,6 +9,7 @@ import (
 	cellerbedrock "celler/bedrock"
 	"neomega-converter-core"
 	"neomega-converter-core/be2je"
+	"neomega-converter-core/be2je/items"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -28,6 +29,8 @@ type ReadActors func(context.Context, celler.ChunkPos) ([]nbt.Compound, error)
 type Options struct {
 	// 每层按估算字节独立淘汰最久未使用的结果；零值使用 64 MiB，负值只合并在途请求。
 	CacheBytes int64
+	// FrameItemResolver adapts displayed item IDs to the preview resource registry.
+	FrameItemResolver items.IDResolver
 }
 
 type Converted struct {
@@ -56,7 +59,7 @@ func NewConverted(read ReadChunk, options Options, actors ...ReadActors) *Conver
 		if len(actors) > 0 {
 			extra, actorErr = actors[0](ctx, pos)
 		}
-		converted, err := be2je.ConvertChunkWithActors(raw, extra)
+		converted, err := be2je.ConvertChunkWithOptions(raw, extra, be2je.ConvertOptions{FrameItemResolver: options.FrameItemResolver})
 		if err != nil {
 			return nil, err
 		}
