@@ -1,6 +1,8 @@
 # neomega-converter-core
 
 本模块在 Bedrock 与 Java 存档之间互相转换，也把结构文件写成可以直接打开的原生世界。
+
+可选的 `be2je.StateFallback` 与 `adapt.Options.StateFallback` 允许预览调用方为旧转换表无法识别的方块补充状态映射。已识别的方块不调用 fallback；fallback 拒绝时仍输出空气和未知方块诊断。回调应返回不含水的 Java 状态，第二层水继续由转换器合并；adapt 并发读取时回调也应支持并发调用。默认转换/导出入口仍使用原版本与规则，这不代表整图输出已升级为 26.3。
 `bedrock-to-java`、`java-to-bedrock` 和 `structure-to-world` 命令行由 [neomega-converter](../apps/neomega-converter/README.md) 组合。
 一根区块柱子的水平范围是 16×16，内部按高度分成 16×16×16 的 section。
 本模块依赖方块、NBT 与存档基础库，不依赖渲染器或 fixer；邻接属性修复由应用层组合。
