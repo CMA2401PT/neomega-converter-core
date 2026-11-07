@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"neomega-blocks/ir"
-	javablocks "neomega-blocks/presets/java/v1"
+	java "neomega-blocks/presets/java/v1"
 	"neomega-converter-core/be2je/blockentities"
 	"neomega-converter-core/be2je/internal/blockstate"
 	nbt "neomega-nbt/presets/v1"
@@ -48,7 +48,7 @@ func Convert(input blockentities.Input) (blockentities.Result, error) {
 		pottedName = "potted_" + plantName
 	}
 	name = "minecraft:" + pottedName
-	if _, exists := javablocks.BlockProperties(name); !exists {
+	if _, ok := java.BlockProperties(name); !ok {
 		return result, nil
 	}
 	return blockentities.Result{State: ir.IRBlock(name + " []")}, nil

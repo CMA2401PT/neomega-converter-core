@@ -121,22 +121,9 @@ func ConvertChunkWithActors(src *cellerbedrock.Chunk, extra []nbt.Compound) (*co
 	return ConvertChunkWithOptions(src, extra, ConvertOptions{})
 }
 
-// StateFallback is an optional preview mapping for states outside the export
-// preset. It is never used by the default world export entry points.
-// Return a dry Java state; the converter applies Bedrock's second water layer.
-// Callbacks shared by adapt readers must be safe for concurrent use.
-type StateFallback func(ir.IRBlock) (ir.IRBlock, bool)
-
-// ConvertChunkWithStateFallback calls fallback only for unrecognized palette
-// states. A nil or rejecting fallback preserves normal unknown-block diagnostics.
-func ConvertChunkWithStateFallback(src *cellerbedrock.Chunk, extra []nbt.Compound, fallback StateFallback) (*converter.JavaChunk, error) {
-	return ConvertChunkWithOptions(src, extra, ConvertOptions{StateFallback: fallback})
-}
-
 // ConvertOptions holds opt-in preview adaptations. The zero value preserves
 // the export preset; frame item resolution does not affect container contents.
 type ConvertOptions struct {
-	StateFallback     StateFallback
 	FrameItemResolver items.IDResolver
 }
 
@@ -240,10 +227,6 @@ func convertSections(
 			return cached.state
 		}
 		state, aligned, ok := blockstate.ToJavaWithSource(source.State)
-		if !ok && options.StateFallback != nil {
-			state, ok = options.StateFallback(source.State)
-			aligned = source.State
-		}
 		if !ok {
 			state = air
 		}
