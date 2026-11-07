@@ -9,6 +9,7 @@ import (
 	cellerbedrock "celler/bedrock"
 	"neomega-converter-core"
 	"neomega-converter-core/be2je"
+	"neomega-converter-core/be2je/items"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -30,6 +31,8 @@ type Options struct {
 	CacheBytes int64
 	// StateFallback is only for previewing states outside the export preset.
 	StateFallback be2je.StateFallback
+	// FrameItemResolver adapts displayed item IDs to the preview resource registry.
+	FrameItemResolver items.IDResolver
 }
 
 type Converted struct {
@@ -58,7 +61,7 @@ func NewConverted(read ReadChunk, options Options, actors ...ReadActors) *Conver
 		if len(actors) > 0 {
 			extra, actorErr = actors[0](ctx, pos)
 		}
-		converted, err := be2je.ConvertChunkWithStateFallback(raw, extra, options.StateFallback)
+		converted, err := be2je.ConvertChunkWithOptions(raw, extra, be2je.ConvertOptions{StateFallback: options.StateFallback, FrameItemResolver: options.FrameItemResolver})
 		if err != nil {
 			return nil, err
 		}

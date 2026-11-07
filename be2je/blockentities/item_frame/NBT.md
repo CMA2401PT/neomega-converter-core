@@ -27,3 +27,5 @@ Java 的展示框是独立实体，所在格子是空气。
 源状态不是 `frame` / `glow_frame`、或 `facing_direction` 不是 0..5 时返回 error。
 物品转不出时保留空展示框并记 `unknown_item`。`Rotation` 固定写 `[0,0]`，
 `Fixed`、`Invisible` 等字段不转换。
+
+预览调用方可通过 `ConvertOptions.FrameItemResolver`（或 adapt 同名选项）按当前物品资源目录补充/校正框内物品 ID。名称、耐久等组件仍由原物品转换器生成；该选项只影响展示框，不改变箱子内容或默认导出入口。

@@ -13,6 +13,37 @@ import (
 	nbt "neomega-nbt/presets/v1"
 )
 
+func TestFrameItemResolverIsOptIn(t *testing.T) {
+	layers := [][]ir.IRBlock{airLayer()}
+	layers[0][0] = `minecraft:frame ["facing_direction"=3]`
+	chunk := fixtureChunk(t, layers, map[[3]uint8]string{{0, 0, 0}: `{id:"ItemFrame",ItemRotation:90f,Item:{Name:"example:new_item",Count:1b,Damage:0s,tag:{display:{Name:"test"}}}}`}, 0)
+	before, err := ConvertChunk(chunk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Entities) != 1 || before.Entities[0]["Item"] != nil || len(before.Diagnostics) != 1 {
+		t.Fatalf("legacy fixture: %+v", before)
+	}
+	calls := 0
+	got, err := ConvertChunkWithOptions(chunk, nil, ConvertOptions{FrameItemResolver: func(source nbt.Compound, id string, blockItem bool) (string, bool) {
+		calls++
+		return "minecraft:diamond_sword", false
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || len(got.Diagnostics) != 0 || got.Entities[0]["ItemRotation"] != int8(2) {
+		t.Fatalf("preview=%+v calls=%d", got, calls)
+	}
+	if got.Entities[0]["Item"].(nbt.Compound)["id"] != "minecraft:diamond_sword" {
+		t.Fatal("resolver result lost")
+	}
+	after, err := ConvertChunk(chunk)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatal("preview changed source/default export")
+	}
+}
+
 func TestItemFrameChunk(t *testing.T) {
 	// 两个 id 都接入整根入口；缺省朝向由版本对齐补齐后提供给规则。
 	for _, test := range []struct {

@@ -33,6 +33,7 @@ import (
 	"neomega-converter-core/be2je/blockentities/sign"
 	"neomega-converter-core/be2je/blockentities/skull"
 	"neomega-converter-core/be2je/internal/blockstate"
+	"neomega-converter-core/be2je/items"
 
 	nbt "neomega-nbt/presets/v1"
 )
@@ -106,17 +107,18 @@ func ConvertSection(
 		dimension,
 		[]*cellerbedrock.Section{section},
 		blockEntities,
+		ConvertOptions{},
 	)
 }
 
 func ConvertChunk(src *cellerbedrock.Chunk) (*converter.JavaChunk, error) {
-	return convertChunk(src, nil, nil)
+	return ConvertChunkWithOptions(src, nil, ConvertOptions{})
 }
 
 // ConvertChunkWithActors 追加调用方从 digp/actorprefix 取得的实体。
 // 0x32 记录仍由 ConvertChunk 自己读取。
 func ConvertChunkWithActors(src *cellerbedrock.Chunk, extra []nbt.Compound) (*converter.JavaChunk, error) {
-	return convertChunk(src, extra, nil)
+	return ConvertChunkWithOptions(src, extra, ConvertOptions{})
 }
 
 // StateFallback is an optional preview mapping for states outside the export
@@ -128,10 +130,18 @@ type StateFallback func(ir.IRBlock) (ir.IRBlock, bool)
 // ConvertChunkWithStateFallback calls fallback only for unrecognized palette
 // states. A nil or rejecting fallback preserves normal unknown-block diagnostics.
 func ConvertChunkWithStateFallback(src *cellerbedrock.Chunk, extra []nbt.Compound, fallback StateFallback) (*converter.JavaChunk, error) {
-	return convertChunk(src, extra, fallback)
+	return ConvertChunkWithOptions(src, extra, ConvertOptions{StateFallback: fallback})
 }
 
-func convertChunk(src *cellerbedrock.Chunk, extra []nbt.Compound, fallback StateFallback) (*converter.JavaChunk, error) {
+// ConvertOptions holds opt-in preview adaptations. The zero value preserves
+// the export preset; frame item resolution does not affect container contents.
+type ConvertOptions struct {
+	StateFallback     StateFallback
+	FrameItemResolver items.IDResolver
+}
+
+// ConvertChunkWithOptions converts a chunk using explicit caller adaptations.
+func ConvertChunkWithOptions(src *cellerbedrock.Chunk, extra []nbt.Compound, options ConvertOptions) (*converter.JavaChunk, error) {
 	// 解码完整成功后才进入转换，任一 section 损坏仍使整根柱子失败。
 	var sections []*cellerbedrock.Section
 	for _, y := range src.SectionYs() {
@@ -153,7 +163,7 @@ func convertChunk(src *cellerbedrock.Chunk, extra []nbt.Compound, fallback State
 		src.Dimension,
 		sections,
 		entities,
-		fallback,
+		options,
 	)
 	applyBiomes(src, result)
 	if err != nil {
@@ -216,7 +226,7 @@ func convertSections(
 	dimension int32,
 	sections []*cellerbedrock.Section,
 	entities []nbt.Compound,
-	fallbacks ...StateFallback,
+	options ConvertOptions,
 ) *converter.JavaChunk {
 	// 两个公开入口共用调色板、实体和第二层水的顺序，避免单 section 行为漂移。
 	result := &converter.JavaChunk{
@@ -230,8 +240,8 @@ func convertSections(
 			return cached.state
 		}
 		state, aligned, ok := blockstate.ToJavaWithSource(source.State)
-		if !ok && len(fallbacks) != 0 && fallbacks[0] != nil {
-			state, ok = fallbacks[0](source.State)
+		if !ok && options.StateFallback != nil {
+			state, ok = options.StateFallback(source.State)
 			aligned = source.State
 		}
 		if !ok {
@@ -277,6 +287,7 @@ func convertSections(
 		result,
 		sources,
 		cache,
+		options.FrameItemResolver,
 	)
 	for _, section := range sections {
 		y := section.Y
@@ -292,6 +303,7 @@ func convertEntities(
 	result *converter.JavaChunk,
 	sources map[int32]*cellerbedrock.Section,
 	cache map[cellerbedrock.Block]blockResult,
+	itemResolver items.IDResolver,
 ) map[int32]map[layer_storage.Position]bool {
 	// 实体规则依赖单格 NBT，改过的格子单独标记，避免混入层组合的调色板缓存。
 	changed := make(map[int32]map[layer_storage.Position]bool)
@@ -344,13 +356,14 @@ func convertEntities(
 			continue
 		}
 		output, err := rule(blockentities.Input{
-			Base:        base,
-			Source:      entity,
-			LocalPos:    [3]uint8{local.X, local.Y, local.Z},
-			WorldPos:    world,
-			SourceState: aligned,
-			Dimension:   result.Dimension,
-			ReportItem:  result.ReportUnknownItem,
+			Base:              base,
+			Source:            entity,
+			LocalPos:          [3]uint8{local.X, local.Y, local.Z},
+			WorldPos:          world,
+			SourceState:       aligned,
+			Dimension:         result.Dimension,
+			ReportItem:        result.ReportUnknownItem,
+			FrameItemResolver: itemResolver,
 		})
 		if err != nil {
 			result.Diagnostics = append(result.Diagnostics, converter.Diagnostic{

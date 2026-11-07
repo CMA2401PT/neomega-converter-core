@@ -3,6 +3,7 @@ package blockentities
 import (
 	"celler"
 	"neomega-blocks/ir"
+	"neomega-converter-core/be2je/items"
 	nbt "neomega-nbt/presets/v1"
 )
 
@@ -18,6 +19,8 @@ type Input struct {
 	Dimension int32
 	// ReportItem 在物品转不出时收到物品名。由区块入口注入，规则必须允许为 nil。
 	ReportItem func(name string)
+	// FrameItemResolver only changes displayed item IDs; nil uses the export preset.
+	FrameItemResolver items.IDResolver
 }
 
 type Result struct {

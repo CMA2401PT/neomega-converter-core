@@ -39,3 +39,7 @@ Bedrock 物品堆叠是一个 Compound，Java 1.21.4 用 `{id, count, components
 名称为空、空气或数量非正时返回 nil，不算失败。物品表查不到、药水/附魔编号越界、
 书页类型错误、容器列表类型错误时返回 nil，并把物品名交给 `ReportItem`；
 区块诊断记 `unknown_item`。容器里转不出的条目逐条跳过，容器本身保留。
+
+## 预览物品 ID
+
+`ConvertItemWithResolver` 可在旧 ID 解析后、组件转换前调用只读 `IDResolver`。回调返回目标物品 ID 及是否为方块物品；空 ID 继续报告 `unknown_item`。数量、空气、药水/附魔/书本等校验仍走原流程。nil 回调保持默认导出行为。
