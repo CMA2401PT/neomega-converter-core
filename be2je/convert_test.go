@@ -53,7 +53,7 @@ func TestSavedSubchunk(t *testing.T) {
 		{[3]int{4, -60, 6}, `minecraft:light_gray_bed ["facing"="north","occupied"="false","part"="foot"]`},
 		{[3]int{5, -60, 4}, `minecraft:potted_dandelion []`},
 		{[3]int{6, -60, 4}, `minecraft:potted_orange_tulip []`},
-		{[3]int{2, -60, 2}, `minecraft:smooth_quartz_stairs ["facing"="north","half"="bottom","shape"="straight","waterlogged"="true"]`},
+		{[3]int{2, -60, 2}, `minecraft:smooth_quartz_stairs ["facing"="north","half"="bottom","shape"="inner_left","waterlogged"="true"]`},
 		{[3]int{2, -60, 3}, `minecraft:smooth_quartz_stairs ["facing"="west","half"="bottom","shape"="straight","waterlogged"="true"]`},
 		{[3]int{3, -60, 2}, `minecraft:smooth_quartz_stairs ["facing"="north","half"="bottom","shape"="straight","waterlogged"="true"]`},
 	} {
@@ -96,10 +96,10 @@ func TestChunkConversionAndWater(t *testing.T) {
 	dry := convertFixture(t, layers[:1], nil, 0)
 	assertBlock(t, dry.Sections[0].Blocks.Get(layer_storage.At(0, 0, 0)), "minecraft:cobblestone []")
 
-	// 源状态保留新版属性，转换表负责按目标版本规范化。
+	// 源状态的 corner 已属于目标全集，转换表应将它保留为 Java shape。
 	layers[0][0] = ir.IRBlock(`minecraft:smooth_quartz_stairs ["minecraft:corner"="inner_left","upside_down_bit"=false,"weirdo_direction"=3]`)
 	newer := convertFixture(t, layers[:1], nil, 0)
-	assertBlock(t, newer.Sections[0].Blocks.Get(layer_storage.At(0, 0, 0)), `minecraft:smooth_quartz_stairs ["facing"="north","half"="bottom","shape"="straight"]`)
+	assertBlock(t, newer.Sections[0].Blocks.Get(layer_storage.At(0, 0, 0)), `minecraft:smooth_quartz_stairs ["facing"="north","half"="bottom","shape"="inner_left"]`)
 }
 
 func TestChestAndSignEntities(t *testing.T) {

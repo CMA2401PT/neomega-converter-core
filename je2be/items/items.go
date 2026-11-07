@@ -9,6 +9,7 @@ import (
 
 	"neomega-blocks/ir"
 	converts "neomega-blocks/presets/block-converts/v1"
+	java "neomega-blocks/presets/java/v1"
 	"neomega-converter-core/je2be/internal/textcomponent"
 	"neomega-converter-core/mapping"
 	tables "neomega-converter-core/third_party"
@@ -40,7 +41,7 @@ func ConvertItem(src nbt.Compound, report func(name string)) nbt.Compound {
 	}
 
 	// 方块物品带 Block，才能保留 Java 里已经确定的变体。
-	if converts.IsJavaBlock(id) {
+	if _, ok := java.BlockProperties(id); ok {
 		if state, ok := converts.ConvertFromJava(ir.IRBlock(id + " []")); ok {
 			out["Block"] = nbt.Compound{
 				"name":    state.NameWithNameSpace(),
