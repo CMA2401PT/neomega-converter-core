@@ -27,6 +27,17 @@ func ConvertItem(src nbt.Compound) nbt.Compound {
 // ConvertItemReported 与 ConvertItem 相同，但转换失败时把物品名交给 report。
 // report 可以为 nil；空气、空名字和非正数量不算失败，不报告。
 func ConvertItemReported(src nbt.Compound, report func(name string)) nbt.Compound {
+	return ConvertItemWithResolver(src, report, nil)
+}
+
+// IDResolver may replace the resolved ID for a caller's target item registry.
+// source is read-only; returning an empty ID rejects the item. Shared callbacks
+// must be safe for concurrent use. The bool distinguishes block variants from tools.
+type IDResolver func(source nbt.Compound, javaID string, blockItem bool) (string, bool)
+
+// ConvertItemWithResolver retains the normal component validation and failure
+// reporting while allowing a version-specific ID choice. Nil keeps legacy behavior.
+func ConvertItemWithResolver(src nbt.Compound, report func(name string), resolver IDResolver) nbt.Compound {
 	name, _ := src["Name"].(string)
 	count, _ := src["Count"].(int8)
 	if name == "" || name == "minecraft:air" || count <= 0 {
@@ -38,6 +49,9 @@ func ConvertItemReported(src nbt.Compound, report func(name string)) nbt.Compoun
 	}
 	aux, _ := number(src["Damage"])
 	javaID, blockItem := resolveID(src, name, aux)
+	if resolver != nil {
+		javaID, blockItem = resolver(src, javaID, blockItem)
+	}
 	if javaID == "" {
 		notify(report, name)
 		return nil
