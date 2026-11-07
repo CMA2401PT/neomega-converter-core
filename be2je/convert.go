@@ -110,28 +110,16 @@ func ConvertSection(
 }
 
 func ConvertChunk(src *cellerbedrock.Chunk) (*converter.JavaChunk, error) {
-	return convertChunk(src, nil, nil)
+	return convertChunk(src, nil)
 }
 
 // ConvertChunkWithActors 追加调用方从 digp/actorprefix 取得的实体。
 // 0x32 记录仍由 ConvertChunk 自己读取。
 func ConvertChunkWithActors(src *cellerbedrock.Chunk, extra []nbt.Compound) (*converter.JavaChunk, error) {
-	return convertChunk(src, extra, nil)
+	return convertChunk(src, extra)
 }
 
-// StateFallback is an optional preview mapping for states outside the export
-// preset. It is never used by the default world export entry points.
-// Return a dry Java state; the converter applies Bedrock's second water layer.
-// Callbacks shared by adapt readers must be safe for concurrent use.
-type StateFallback func(ir.IRBlock) (ir.IRBlock, bool)
-
-// ConvertChunkWithStateFallback calls fallback only for unrecognized palette
-// states. A nil or rejecting fallback preserves normal unknown-block diagnostics.
-func ConvertChunkWithStateFallback(src *cellerbedrock.Chunk, extra []nbt.Compound, fallback StateFallback) (*converter.JavaChunk, error) {
-	return convertChunk(src, extra, fallback)
-}
-
-func convertChunk(src *cellerbedrock.Chunk, extra []nbt.Compound, fallback StateFallback) (*converter.JavaChunk, error) {
+func convertChunk(src *cellerbedrock.Chunk, extra []nbt.Compound) (*converter.JavaChunk, error) {
 	// 解码完整成功后才进入转换，任一 section 损坏仍使整根柱子失败。
 	var sections []*cellerbedrock.Section
 	for _, y := range src.SectionYs() {
@@ -153,7 +141,6 @@ func convertChunk(src *cellerbedrock.Chunk, extra []nbt.Compound, fallback State
 		src.Dimension,
 		sections,
 		entities,
-		fallback,
 	)
 	applyBiomes(src, result)
 	if err != nil {
@@ -216,7 +203,6 @@ func convertSections(
 	dimension int32,
 	sections []*cellerbedrock.Section,
 	entities []nbt.Compound,
-	fallbacks ...StateFallback,
 ) *converter.JavaChunk {
 	// 两个公开入口共用调色板、实体和第二层水的顺序，避免单 section 行为漂移。
 	result := &converter.JavaChunk{
@@ -230,10 +216,6 @@ func convertSections(
 			return cached.state
 		}
 		state, aligned, ok := blockstate.ToJavaWithSource(source.State)
-		if !ok && len(fallbacks) != 0 && fallbacks[0] != nil {
-			state, ok = fallbacks[0](source.State)
-			aligned = source.State
-		}
 		if !ok {
 			state = air
 		}

@@ -26,7 +26,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	javablocks "neomega-blocks/presets/java/v1"
+	converts "neomega-blocks/presets/block-converts/v1"
 )
 
 // 锁文件描述生成所需的每个上游文件。读取时先核对 sha256，避免悄悄换版本。
@@ -341,7 +341,7 @@ func checkBlockItems(entries []itemEntry, blockJava map[string]bool) (mismatches
 			continue
 		}
 		blockItems++
-		if _, ok := javablocks.BlockProperties(entry.Java); ok {
+		if converts.IsJavaBlock(entry.Java) {
 			continue
 		}
 		mismatches++
