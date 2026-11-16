@@ -6,6 +6,8 @@
 
 `be2je` 先转换基础调色板，再应用单格方块实体规则，最后合并第二层水；`je2be` 与之对称。`javaout` 和 `bedrockout` 是各版本唯一的写出点，`be2je/export`、`je2be/export` 只把读源、翻译和写出接成整图转换。`be2je/adapt` 缓存按坐标转换的 `JavaChunk`。`structure` 流式读取 schem、schematic、litematic、nbt 构造 `JavaChunk`；mcstructure 保留原生双层状态构造 `BedrockChunk`，mcworld 解压为原生目录。大数组通过 NBT override 逐段接收并压缩暂存，禁止先分配完整体积数组或全图区块集合。
 
+`worldinput` 是浏览应用共用的来源准备层，负责路径、结构输出复用、维度和原生读取句柄。Java 的文件访问由单一协程完成，Bedrock 的所有原始读取必须经过关闭屏障。关闭先等读取退出，再释放 World 和 PackFS；渲染适配与 fixer 由应用组合。
+
 ## 边界与变更约束
 
 本模块依赖方块、NBT 与存档基础库，不依赖渲染器或 fixer。邻接修复由应用层组合。保留 `ConvertSection` 与 `ConvertChunk` 共用实现的结构，修改状态映射、实体规则、诊断或写出行为时，同时修订 README 中对应的兼容性说明。

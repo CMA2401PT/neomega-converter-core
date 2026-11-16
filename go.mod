@@ -6,6 +6,7 @@ require (
 	celler v0.0.0
 	neomega-blocks v0.0.0
 	neomega-nbt v0.0.0
+	neomega-packfs v0.0.0
 )
 
 require (
@@ -13,7 +14,6 @@ require (
 	github.com/golang/snappy v0.0.1 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
-	neomega-packfs v0.0.0 // indirect
 )
 
 replace celler => ../neomega-celler

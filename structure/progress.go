@@ -14,7 +14,7 @@ type Progress struct {
 
 // Options 控制转换的内存预算、结构写出并发数与同步进度通知。
 type Options struct {
-	// MemoryMiB 是映射与并行工作的预算；零值为 512，至少 64。不是进程 RSS 硬上限。
+	// MemoryMiB 是映射与并行工作的预算；零值为 512，至少 64。
 	MemoryMiB int
 	// Workers 是结构写出并发数的上限；零值按 CPU 自动选择，仍受内存预算约束。
 	Workers int

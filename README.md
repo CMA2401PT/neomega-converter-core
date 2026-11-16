@@ -227,7 +227,7 @@ ConvertSection(pos, dim, *cellerbedrock.Section, []blockEntity) → *JavaChunk
 
 `be2je/export.ConvertWorld` 扫描源世界，将独占的区块记录交给并行任务完成 `be2je` 转换和 `javaout` 编码、压缩，再由调用协程按源顺序写出并合并报告。源与目标句柄分别由一个协程使用。严格模式按源顺序停止，后面的任务即使先完成，也不会越过失败柱子写出。
 
-`be2je/export.ConvertOptions` 和反向的 `je2be/export.ConvertOptions` 都支持 `MemoryMiB`、`Workers` 和 `Context`。内存预算零值为 512 MiB，至少 64 MiB；并发零值按 CPU 自动选择，最多 8 个。每个存档转换任务按 64 MiB 工作区估算并发，至少执行一个任务，因此预算不是进程 RSS 硬上限。任务窗口最多保留与实际并发数相同的未交付输入和结果，另有生产者正在读取的一根柱子；慢任务不会造成无界积压。`Context` 为 nil 时使用 Background，返回前等待所有读取和计算退出。
+`be2je/export.ConvertOptions` 和反向的 `je2be/export.ConvertOptions` 都支持 `MemoryMiB`、`Workers` 和 `Context`。内存预算零值为 512 MiB，至少 64 MiB；并发零值按 CPU 自动选择，最多 8 个。每个存档转换任务按 64 MiB 工作区估算并发，至少执行一个任务。任务窗口最多保留与实际并发数相同的未交付输入和结果，另有生产者正在读取的一根柱子；慢任务不会造成无界积压。`Context` 为 nil 时使用 Background，返回前等待所有读取和计算退出。
 
 ```text
 ConvertWorld(bedrockWorld, javaWorld, {Dimensions, Strict, IncludeUnfinished}) → (Report, err)
@@ -280,7 +280,7 @@ ConvertLevel(Level) → (level.dat, LevelReport)
 
 可选的 `structure.Options{MemoryMiB: 512, Workers: 0}` 控制工作预算。预算先为片区工作区预留空间，余量足够时对已经写完的压缩暂存文件建立只读 mmap，即由操作系统按需映射文件页面，解压直接读取这些页面。Darwin、Linux 和 Windows 支持映射；预算不足或其他平台使用按偏移读取。映射大小从并发预算中扣除，再按片区高度限制任务数。`MemoryMiB` 的零值为 512，最小值为 64；`Workers` 的零值按 CPU 数自动选择，最多 8 个，显式值仍受预算限制。mcstructure 共用暂存读取和有界调度，双层片区各预留 64 MiB 工作区，并为 8 MiB 数据库批次及合并副本预留 16 MiB。基岩区块与实体共同批量提交；mcworld 只逐条解压。
 
-预算不是进程 RSS 硬上限，内存还包含调色板、实体 NBT、索引和 Go 运行时。`Options.Progress` 由调用协程串行通知，取消时等待任务退出后才释放映射和临时文件。临时数据与输出位于同一磁盘，性能测试应把源文件和输出都放在 SSD。
+进程内存还包含调色板、实体 NBT、索引和 Go 运行时。`Options.Progress` 由调用协程串行通知，取消时等待任务退出后才释放映射和临时文件。临时数据与输出位于同一磁盘，性能测试应把源文件和输出都放在 SSD。
 
 Java 输出使用 DataVersion 4189、空超平坦主世界和 plains 群系；普通实体写入独立 entities region。高度超出默认范围时整体平移。结构高于 384 格时附带 Java 1.21.4 的扩展高度数据包，支持最多 2096 格。Bedrock 保持原生主世界高度，高于 384 格时报错。位置、区域覆盖顺序及 NBT 保留范围见 [structure/NBT.md](structure/NBT.md)。
 
@@ -342,6 +342,16 @@ section 解码失败通过 `error` 返回。
 
 瞬时实体（箭、火球、经验瓶等）直接跳过；未知标识记 `unknown_entity`。
 村民交易、乘骑、宠物主人、盔甲架姿势、生物群系变种等类型专属数据不转换。
+
+## 为浏览应用准备来源
+
+多个浏览器需要相同的路径识别、结构转换、维度选择和关闭顺序，所以这些能力集中在 `worldinput`。`worldinput.Open(ctx, Options)` 接收目录、`level.dat`、Java PackFS 或六种结构文件，返回拥有句柄的 `Source` 和来源描述。结构转换成功后打开原生世界；已有非空输出目录直接尝试复用，无法识别为世界时返回错误并保留目录。
+
+`Options.Dimension` 使用 Java 相对目录或 Bedrock 的 `0`、`1`、`2`。Java 标准维度与自定义维度目录在打开时扫描，维度列表和初始相机位置放进 `Source.Info`。`Options.Structure` 直接承接转换预算、并发和进度回调；`Info` 区分用户入口与实际世界路径，并说明是否复用了结构输出。
+
+Java 来源暴露 `JavaReader`，用单一读取协程访问 celler 和 PackFS，缓存地形与实体压缩记录。调用方并发请求记录，再在自己的任务内解码。Bedrock 来源暴露 `BedrockReads`，把地形、实体和占用表读取纳入同一个关闭屏障。`Source.Close` 等待原始读取结束再关闭文件或数据库；取消一个转换等待者不会提前释放仍在使用的句柄。
+
+PackFS 使用 `OpenReadOnly`，可读取无写权限的容器，打开和关闭均保持容器原样。`worldinput` 不组合渲染资源，Bedrock 转换与邻接修复由应用选用。`bytecache` 提供按字节预算淘汰的缓存，Java 读取器与 viewer 的响应缓存共用它。
 
 ## 按坐标读取与缓存
 
