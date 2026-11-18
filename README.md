@@ -347,6 +347,8 @@ section 解码失败通过 `error` 返回。
 
 多个浏览器需要相同的路径识别、结构转换、维度选择和关闭顺序，所以这些能力集中在 `worldinput`。`worldinput.Open(ctx, Options)` 接收目录、`level.dat`、Java PackFS 或六种结构文件，返回拥有句柄的 `Source` 和来源描述。结构转换成功后打开原生世界；已有非空输出目录直接尝试复用，无法识别为世界时返回错误并保留目录。
 
+`Options.StructureRoot` 留空时将结构转换到源文件旁。指定目录后，所有结构按去掉扩展名的文件名在该目录下写出或复用；不区分同名文件的来源目录。原生世界与 PackFS 不受影响。
+
 `Options.Dimension` 使用 Java 相对目录或 Bedrock 的 `0`、`1`、`2`。Java 标准维度与自定义维度目录在打开时扫描，维度列表和初始相机位置放进 `Source.Info`。`Options.Structure` 直接承接转换预算、并发和进度回调；`Info` 区分用户入口与实际世界路径，并说明是否复用了结构输出。
 
 Java 来源暴露 `JavaReader`，用单一读取协程访问 celler 和 PackFS，缓存地形与实体压缩记录。调用方并发请求记录，再在自己的任务内解码。Bedrock 来源暴露 `BedrockReads`，把地形、实体和占用表读取纳入同一个关闭屏障。`Source.Close` 等待原始读取结束再关闭文件或数据库；取消一个转换等待者不会提前释放仍在使用的句柄。

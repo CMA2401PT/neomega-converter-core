@@ -20,10 +20,11 @@ import (
 
 // Options 将结构准备与原生读取放在同一次打开中，维度和位置不会在转换后丢失。
 type Options struct {
-	Path      string
-	Dimension string
-	Position  *[3]float64
-	Structure structure.Options
+	Path          string
+	Dimension     string
+	Position      *[3]float64
+	Structure     structure.Options
+	StructureRoot string
 }
 
 // Info 同时保留用户选择的入口和实际世界路径，便于解释结构输出的复用。
@@ -58,8 +59,15 @@ func Open(ctx context.Context, options Options) (_ *Source, err error) {
 		return nil, err
 	}
 	source := &Source{Info: Info{Path: input.Path, Kind: input.Kind}}
-	if structure.FileKind(input.Path) != "" {
+	if kind := structure.FileKind(input.Path); kind != "" && kind == input.Kind {
 		directory := structure.WorldDirectory(input.Path)
+		if options.StructureRoot != "" {
+			name := structure.WorldDirectory(filepath.Base(input.Path))
+			if !filepath.IsLocal(name) || name == "." {
+				return nil, fmt.Errorf("无效的转换目录名：%q", name)
+			}
+			directory = filepath.Join(options.StructureRoot, name)
+		}
 		entries, err := os.ReadDir(directory)
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
